@@ -517,6 +517,7 @@ mod tests {
         assert_eq!(report.reconciled.len(), 1);
         assert!(e.issues().unwrap().is_empty());
         assert_eq!(e.state().tasks[&task].title, "B");
+        drop(e); // Windows refuses to delete an open SQLite file
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -553,6 +554,7 @@ mod tests {
         let other = Arc::new(FakeCloud::new("other@example.com", "pw"));
         let e = Engine::open(other.clone(), other.history_key(), Cache::open(&path).unwrap(), WRITES).unwrap();
         assert!(e.state().areas.is_empty(), "another history's data is discarded");
+        drop(e); // Windows refuses to delete an open SQLite file
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
