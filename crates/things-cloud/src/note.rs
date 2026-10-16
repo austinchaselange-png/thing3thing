@@ -43,11 +43,7 @@ fn strip_legacy_xml(s: &str) -> String {
 }
 
 fn unescape_xml(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
 }
 
 /// Applies `{r, p, l}` replacement patches on Unicode scalar positions, with

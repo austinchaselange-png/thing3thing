@@ -124,8 +124,7 @@ pub fn task_dto(state: &State, t: &things_cloud::state::Task) -> TaskDto {
 
 impl Snapshot {
     pub fn from_state(state: &State) -> Self {
-        let mut tasks: Vec<TaskDto> =
-            state.tasks.values().filter(|t| !t.is_recurring_template()).map(|t| task_dto(state, t)).collect();
+        let mut tasks: Vec<TaskDto> = state.tasks.values().filter(|t| !t.is_recurring_template()).map(|t| task_dto(state, t)).collect();
         tasks.sort_by(|a, b| a.index.cmp(&b.index).then_with(|| a.id.cmp(&b.id)));
         let mut checklist: Vec<ChecklistDto> = state
             .checklist

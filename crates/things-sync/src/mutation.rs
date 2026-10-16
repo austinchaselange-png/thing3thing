@@ -109,9 +109,20 @@ pub enum Mutation {
         #[serde(default)]
         heading_id: Option<String>,
     },
-    SetStatus { id: String, base_rev: Option<u64>, status: StatusArg },
-    SetTrashed { id: String, base_rev: Option<u64>, trashed: bool },
-    AddChecklistItem { task_id: String, title: String },
+    SetStatus {
+        id: String,
+        base_rev: Option<u64>,
+        status: StatusArg,
+    },
+    SetTrashed {
+        id: String,
+        base_rev: Option<u64>,
+        trashed: bool,
+    },
+    AddChecklistItem {
+        task_id: String,
+        title: String,
+    },
     UpdateChecklistItem {
         id: String,
         base_rev: Option<u64>,
@@ -120,18 +131,42 @@ pub enum Mutation {
         #[serde(default)]
         completed: Option<bool>,
     },
-    DeleteChecklistItem { id: String },
-    CreateArea { title: String },
-    RenameArea { id: String, base_rev: Option<u64>, title: String },
-    DeleteArea { id: String, #[serde(default)] confirm: String },
+    DeleteChecklistItem {
+        id: String,
+    },
+    CreateArea {
+        title: String,
+    },
+    RenameArea {
+        id: String,
+        base_rev: Option<u64>,
+        title: String,
+    },
+    DeleteArea {
+        id: String,
+        #[serde(default)]
+        confirm: String,
+    },
     CreateTag {
         title: String,
         #[serde(default)]
         parent_id: Option<String>,
     },
-    RenameTag { id: String, base_rev: Option<u64>, title: String },
-    DeleteTag { id: String, #[serde(default)] confirm: String },
-    StopRepeating { id: String, #[serde(default)] confirm: String },
+    RenameTag {
+        id: String,
+        base_rev: Option<u64>,
+        title: String,
+    },
+    DeleteTag {
+        id: String,
+        #[serde(default)]
+        confirm: String,
+    },
+    StopRepeating {
+        id: String,
+        #[serde(default)]
+        confirm: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -251,7 +286,20 @@ fn min_index(state: &State, pred: impl Fn(&Task) -> bool) -> Option<i64> {
 pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
     let mut plan = Plan { items: vec![], touched: vec![], created: vec![], summary: String::new() };
     match m {
-        Mutation::CreateTask { title, notes, when, deadline, area_id, project_id, heading_id, tag_ids, checklist, kind, repeat, reminder } => {
+        Mutation::CreateTask {
+            title,
+            notes,
+            when,
+            deadline,
+            area_id,
+            project_id,
+            heading_id,
+            tag_ids,
+            checklist,
+            kind,
+            repeat,
+            reminder,
+        } => {
             let task_type = match kind {
                 NewKind::Task => TaskType::Task,
                 NewKind::Project => TaskType::Project,
@@ -282,7 +330,9 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
                     expect_type(state, p, TaskType::Project, "project")?;
                     c.projects = vec![p.to_string()];
                     c.st = start::ANYTIME;
-                    c.index = ops::next_top_index_below(min_index(state, |t| t.task_type == TaskType::Heading && t.projects.iter().any(|x| x == p)));
+                    c.index = ops::next_top_index_below(min_index(state, |t| {
+                        t.task_type == TaskType::Heading && t.projects.iter().any(|x| x == p)
+                    }));
                 }
                 TaskType::Project => {
                     c.areas = area_id.iter().cloned().collect();
@@ -442,7 +492,9 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
                 let mut children: Vec<&Task> = state
                     .tasks
                     .values()
-                    .filter(|c| c.status == Status::Open && !c.trashed && c.id != t.id && state.project_of(c).as_deref() == Some(id.as_str()))
+                    .filter(|c| {
+                        c.status == Status::Open && !c.trashed && c.id != t.id && state.project_of(c).as_deref() == Some(id.as_str())
+                    })
                     .collect();
                 children.sort_by(|a, b| a.id.cmp(&b.id));
                 for c in children {
@@ -562,7 +614,8 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
             if confirm != CONFIRM_PHRASE {
                 return Err(PlanError::ConfirmationRequired);
             }
-            let template_id = t.recurrence_templates.first().cloned().ok_or_else(|| PlanError::Invalid("this item does not repeat".into()))?;
+            let template_id =
+                t.recurrence_templates.first().cloned().ok_or_else(|| PlanError::Invalid("this item does not repeat".into()))?;
             let template = state.tasks.get(&template_id);
             if !template.is_some_and(Task::is_recurring_template) {
                 return invalid("the repeat rule for this item could not be found");
@@ -627,7 +680,10 @@ mod tests {
     #[test]
     fn deserialises_ui_payloads() {
         let m = parse(json!({"type":"updateTask","id":"x","baseRev":3,"deadline":null}));
-        assert_eq!(m, Mutation::UpdateTask { id: "x".into(), base_rev: Some(3), title: None, notes: None, deadline: Some(None), tag_ids: None });
+        assert_eq!(
+            m,
+            Mutation::UpdateTask { id: "x".into(), base_rev: Some(3), title: None, notes: None, deadline: Some(None), tag_ids: None }
+        );
         let m = parse(json!({"type":"schedule","id":"x","baseRev":null,"when":{"kind":"date","date":"2026-03-01"}}));
         assert!(matches!(m, Mutation::Schedule { when: When::Date { .. }, reminder: None, .. }));
         assert_eq!(parse(json!({"type":"deleteTag","id":"x"})).class(), WriteClass::Destructive);
@@ -640,7 +696,12 @@ mod tests {
         assert_eq!(p.items[0].payload["st"], 0);
         assert_eq!(p.items[0].payload["ix"], 6, "sorts above the existing top-level task");
 
-        let p = plan(&f.state, &parse(json!({"type":"createTask","title":"Tape","headingId":f.heading,"tagIds":[f.tag],"checklist":["a","","b"]})), &ctx()).unwrap();
+        let p = plan(
+            &f.state,
+            &parse(json!({"type":"createTask","title":"Tape","headingId":f.heading,"tagIds":[f.tag],"checklist":["a","","b"]})),
+            &ctx(),
+        )
+        .unwrap();
         let payload = &p.items[0].payload;
         assert_eq!(payload["agr"], json!([f.heading]));
         assert_eq!(payload["pr"], json!([]));
@@ -648,24 +709,36 @@ mod tests {
         assert_eq!(p.items.len(), 3, "task + 2 non-empty checklist items");
         assert_eq!(p.created.len(), 3);
 
-        let p = plan(&f.state, &parse(json!({"type":"createTask","title":"Later","when":{"kind":"date","date":"2026-02-20"},"reminder":"09:30"})), &ctx()).unwrap();
+        let p = plan(
+            &f.state,
+            &parse(json!({"type":"createTask","title":"Later","when":{"kind":"date","date":"2026-02-20"},"reminder":"09:30"})),
+            &ctx(),
+        )
+        .unwrap();
         assert_eq!(p.items[0].payload["st"], 2);
         assert_eq!(p.items[0].payload["ato"], 34200);
 
-        let p = plan(&f.state, &parse(json!({"type":"createTask","title":"Past","when":{"kind":"date","date":"2026-01-01"}})), &ctx()).unwrap();
+        let p =
+            plan(&f.state, &parse(json!({"type":"createTask","title":"Past","when":{"kind":"date","date":"2026-01-01"}})), &ctx()).unwrap();
         assert_eq!(p.items[0].payload["sr"], dates::date_to_wire(day("2026-02-10")), "past dates mean today");
 
-        let p = plan(&f.state, &parse(json!({"type":"createTask","title":"Section","kind":"heading","projectId":f.project})), &ctx()).unwrap();
+        let p =
+            plan(&f.state, &parse(json!({"type":"createTask","title":"Section","kind":"heading","projectId":f.project})), &ctx()).unwrap();
         assert_eq!(p.items[0].payload["tp"], 2);
         assert_eq!(p.items[0].payload["st"], 1);
         assert_eq!(p.items[0].payload["ix"], 2);
 
         assert!(plan(&f.state, &parse(json!({"type":"createTask","title":"x","kind":"heading"})), &ctx()).is_err());
-        assert!(matches!(plan(&f.state, &parse(json!({"type":"createTask","title":"x","tagIds":["nope"]})), &ctx()), Err(PlanError::NotFound(_))));
+        assert!(matches!(
+            plan(&f.state, &parse(json!({"type":"createTask","title":"x","tagIds":["nope"]})), &ctx()),
+            Err(PlanError::NotFound(_))
+        ));
         assert!(plan(&f.state, &parse(json!({"type":"createTask","title":"x","reminder":"09:00"})), &ctx()).is_err());
         assert!(plan(&f.state, &parse(json!({"type":"createTask","title":"x","projectId":f.area})), &ctx()).is_err());
 
-        let p = plan(&f.state, &parse(json!({"type":"createTask","title":"Daily","when":{"kind":"today"},"repeat":{"unit":"day"}})), &ctx()).unwrap();
+        let p =
+            plan(&f.state, &parse(json!({"type":"createTask","title":"Daily","when":{"kind":"today"},"repeat":{"unit":"day"}})), &ctx())
+                .unwrap();
         assert_eq!(p.items.len(), 2, "template + instance");
         assert_eq!(p.created[0], p.items[1].uuid, "the visible instance is reported as created");
     }
@@ -688,8 +761,14 @@ mod tests {
         assert!(p.items[0].payload.get("sr").is_none(), "does not clear the schedule");
 
         assert!(plan(&f.state, &parse(json!({"type":"move","id":f.project,"baseRev":0,"projectId":f.project})), &ctx()).is_err());
-        assert!(plan(&f.state, &parse(json!({"type":"move","id":f.task,"baseRev":0,"areaId":f.area,"projectId":f.project})), &ctx()).is_err());
-        assert!(plan(&f.state, &parse(json!({"type":"schedule","id":f.project,"baseRev":0,"when":{"kind":"inbox"}})), &ctx()).unwrap().items[0].payload["st"] == 1);
+        assert!(
+            plan(&f.state, &parse(json!({"type":"move","id":f.task,"baseRev":0,"areaId":f.area,"projectId":f.project})), &ctx()).is_err()
+        );
+        assert!(
+            plan(&f.state, &parse(json!({"type":"schedule","id":f.project,"baseRev":0,"when":{"kind":"inbox"}})), &ctx()).unwrap().items[0]
+                .payload["st"]
+                == 1
+        );
     }
 
     #[test]
@@ -719,10 +798,13 @@ mod tests {
         let template = id::new_id();
         let inst = id::new_id();
         f.state
-            .apply_entries(1, &[vec![
-                Item::new(&template, "Task6", 0, json!({"tt":"Water","rr":{"fu":16,"fa":1}})),
-                Item::new(&inst, "Task6", 0, json!({"tt":"Water","rt":[template]})),
-            ]])
+            .apply_entries(
+                1,
+                &[vec![
+                    Item::new(&template, "Task6", 0, json!({"tt":"Water","rr":{"fu":16,"fa":1}})),
+                    Item::new(&inst, "Task6", 0, json!({"tt":"Water","rt":[template]})),
+                ]],
+            )
             .unwrap();
         let p = plan(&f.state, &parse(json!({"type":"stopRepeating","id":inst,"confirm":"DELETE"})), &ctx()).unwrap();
         assert_eq!(p.items[0].payload["rt"], json!([]));

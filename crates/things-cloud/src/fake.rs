@@ -61,10 +61,8 @@ impl FakeCloud {
             let _ = std::fs::create_dir_all(dir);
         }
         let fake = FakeCloud::new("demo@cairn.local", "demo");
-        let history = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<Vec<Item>>>(&bytes).ok())
-            .unwrap_or_else(seed);
+        let history =
+            std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Vec<Vec<Item>>>(&bytes).ok()).unwrap_or_else(seed);
         {
             let mut inner = fake.inner.lock().unwrap();
             inner.history = history;

@@ -45,15 +45,11 @@ impl Family {
 /// Kinds from before the Base58 identifier migration; their ids and
 /// references are normalised with [`crate::id::legacy`].
 pub fn is_legacy_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "Task4" | "Task3" | "Task" | "ChecklistItem2" | "ChecklistItem" | "Area2" | "Area" | "Tag3" | "Tag" | "Tombstone"
-    )
+    matches!(kind, "Task4" | "Task3" | "Task" | "ChecklistItem2" | "ChecklistItem" | "Area2" | "Area" | "Tag3" | "Tag" | "Tombstone")
 }
 
 fn is_settings(kind: &str) -> bool {
-    kind.strip_prefix("Settings")
-        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+    kind.strip_prefix("Settings").is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// One entity event.
@@ -88,8 +84,7 @@ pub fn parse_entry(entry: &Value) -> Result<Vec<Item>, String> {
     let map = entry.as_object().ok_or("history entry is not an object")?;
     let mut items = Vec::with_capacity(map.len());
     for (uuid, env) in map {
-        let raw: RawEnvelope =
-            serde_json::from_value(env.clone()).map_err(|e| format!("item {uuid}: {e}"))?;
+        let raw: RawEnvelope = serde_json::from_value(env.clone()).map_err(|e| format!("item {uuid}: {e}"))?;
         items.push(Item { uuid: uuid.clone(), kind: raw.e, action: raw.t, payload: raw.p });
     }
     Ok(items)
@@ -99,10 +94,7 @@ pub fn parse_entry(entry: &Value) -> Result<Vec<Item>, String> {
 pub fn commit_body(items: &[Item]) -> Value {
     let mut map = Map::new();
     for item in items {
-        map.insert(
-            item.uuid.clone(),
-            serde_json::json!({ "t": item.action, "e": item.kind, "p": item.payload }),
-        );
+        map.insert(item.uuid.clone(), serde_json::json!({ "t": item.action, "e": item.kind, "p": item.payload }));
     }
     Value::Object(map)
 }

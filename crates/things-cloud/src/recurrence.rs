@@ -206,11 +206,14 @@ mod tests {
         assert_eq!(r["ed"], NEVER_ENDS);
         assert_eq!(r["ia"], 1770681600);
         assert_eq!(r["rrv"], 4);
-        let w = build_rule(&RepeatSpec { unit: RepeatUnit::Week, interval: 2, weekdays: vec![3, 1, 3], month_day: None }, d(2026, 2, 10)).unwrap();
+        let w = build_rule(&RepeatSpec { unit: RepeatUnit::Week, interval: 2, weekdays: vec![3, 1, 3], month_day: None }, d(2026, 2, 10))
+            .unwrap();
         assert_eq!(w["of"], json!([{"wd":1},{"wd":3}]));
-        let m = build_rule(&RepeatSpec { unit: RepeatUnit::Month, interval: 1, weekdays: vec![], month_day: Some(15) }, d(2026, 2, 10)).unwrap();
+        let m = build_rule(&RepeatSpec { unit: RepeatUnit::Month, interval: 1, weekdays: vec![], month_day: Some(15) }, d(2026, 2, 10))
+            .unwrap();
         assert_eq!(m["of"], json!([{"dy":14}]));
-        assert!(build_rule(&RepeatSpec { unit: RepeatUnit::Month, interval: 1, weekdays: vec![], month_day: Some(40) }, d(2026, 2, 10)).is_err());
+        assert!(build_rule(&RepeatSpec { unit: RepeatUnit::Month, interval: 1, weekdays: vec![], month_day: Some(40) }, d(2026, 2, 10))
+            .is_err());
         assert!(build_rule(&RepeatSpec { unit: RepeatUnit::Day, interval: 0, weekdays: vec![], month_day: None }, d(2026, 2, 10)).is_err());
     }
 

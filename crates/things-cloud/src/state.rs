@@ -70,10 +70,7 @@ impl Revs {
 
     /// Wire keys among `keys` changed after `base`.
     pub fn changed_since<'a>(&self, base: u64, keys: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-        keys.into_iter()
-            .filter(|k| self.fields.get(*k).is_some_and(|r| *r > base))
-            .map(str::to_string)
-            .collect()
+        keys.into_iter().filter(|k| self.fields.get(*k).is_some_and(|r| *r > base)).map(str::to_string).collect()
     }
 }
 
@@ -244,12 +241,7 @@ fn as_date(v: &Value) -> Option<NaiveDate> {
 
 fn as_ids(v: &Value, legacy: bool) -> Vec<String> {
     v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| if legacy { id::normalize(s) } else { s.to_string() })
-                .collect()
-        })
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| if legacy { id::normalize(s) } else { s.to_string() }).collect())
         .unwrap_or_default()
 }
 
@@ -343,10 +335,7 @@ impl State {
                 self.deleted.remove(&uuid);
             }
             Family::ChecklistItem => {
-                let c = self
-                    .checklist
-                    .entry(uuid.clone())
-                    .or_insert_with(|| ChecklistItem { id: uuid.clone(), ..Default::default() });
+                let c = self.checklist.entry(uuid.clone()).or_insert_with(|| ChecklistItem { id: uuid.clone(), ..Default::default() });
                 if let Some(p) = payload {
                     for (k, v) in p {
                         match k.as_str() {
@@ -462,8 +451,7 @@ fn apply_task_field(t: &mut Task, key: &str, v: &Value, legacy: bool) {
 }
 
 fn validate_item(item: &Item) -> Result<(), StateError> {
-    let family = Family::of(&item.kind)
-        .ok_or_else(|| StateError::UnknownKind { uuid: item.uuid.clone(), kind: item.kind.clone() })?;
+    let family = Family::of(&item.kind).ok_or_else(|| StateError::UnknownKind { uuid: item.uuid.clone(), kind: item.kind.clone() })?;
     if family == Family::Settings {
         return Ok(());
     }
@@ -575,7 +563,12 @@ mod tests {
             0,
             &[
                 vec![item("CC-Things-Tag-High", "Tag3", 0, json!({"tt":"High","sh":"1","pn":[]}))],
-                vec![item("AD55F048-9A28-4260-A07B-6BA5C0D39AC9", "Task3", 0, json!({"tt":"A task","tg":["CC-Things-Tag-High"],"ss":3,"nt":null}))],
+                vec![item(
+                    "AD55F048-9A28-4260-A07B-6BA5C0D39AC9",
+                    "Task3",
+                    0,
+                    json!({"tt":"A task","tg":["CC-Things-Tag-High"],"ss":3,"nt":null}),
+                )],
             ],
         )
         .unwrap();

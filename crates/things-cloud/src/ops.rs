@@ -128,8 +128,8 @@ impl TaskCreate {
     pub fn build_recurring(&self, rule: &Value, today: NaiveDate, now: f64) -> Result<Vec<Item>, OpError> {
         self.validate()?;
         let reference = self.start_date.unwrap_or(today);
-        let next = crate::recurrence::next_after(rule, reference)
-            .ok_or_else(|| OpError::Invalid("could not compute next repeat date".into()))?;
+        let next =
+            crate::recurrence::next_after(rule, reference).ok_or_else(|| OpError::Invalid("could not compute next repeat date".into()))?;
         let template_id = id::new_id();
         let mut template = self.payload(now);
         template.insert("rr".into(), rule.clone());
@@ -352,8 +352,8 @@ mod tests {
         let p = item.payload.as_object().unwrap();
         // Every key the MCP's TaskCreatePayload sends.
         let expected = [
-            "tp", "sr", "dds", "rt", "rmd", "ss", "tr", "dl", "icp", "st", "ar", "tt", "do", "lai", "tir", "tg", "agr", "ix", "cd",
-            "lt", "icc", "md", "ti", "dd", "ato", "nt", "icsd", "pr", "rp", "acrd", "sp", "sb", "rr", "xx",
+            "tp", "sr", "dds", "rt", "rmd", "ss", "tr", "dl", "icp", "st", "ar", "tt", "do", "lai", "tir", "tg", "agr", "ix", "cd", "lt",
+            "icc", "md", "ti", "dd", "ato", "nt", "icsd", "pr", "rp", "acrd", "sp", "sb", "rr", "xx",
         ];
         assert_eq!(p.len(), expected.len());
         for k in expected {

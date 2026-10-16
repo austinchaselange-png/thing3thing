@@ -6,7 +6,6 @@ mod credentials;
 mod settings;
 mod shell;
 
-
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 

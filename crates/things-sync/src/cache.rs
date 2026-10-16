@@ -193,7 +193,8 @@ impl Cache {
     }
 
     pub fn journal_set(&self, id: i64, status: JournalStatus, detail: Option<&str>) -> Result<(), CacheError> {
-        self.conn.execute("UPDATE journal SET status = ?2, detail = COALESCE(?3, detail) WHERE id = ?1", params![id, status.as_str(), detail])?;
+        self.conn
+            .execute("UPDATE journal SET status = ?2, detail = COALESCE(?3, detail) WHERE id = ?1", params![id, status.as_str(), detail])?;
         Ok(())
     }
 

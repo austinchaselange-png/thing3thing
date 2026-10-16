@@ -342,7 +342,8 @@ impl Core {
                     self.notify("A change may not have been saved", "Open Cairn to review it.");
                 }
             }
-            Err(EngineError::Cloud(CloudError::Http { status: 401 | 403 | 404, .. })) | Err(EngineError::Cloud(CloudError::Unauthorized))
+            Err(EngineError::Cloud(CloudError::Http { status: 401 | 403 | 404, .. }))
+            | Err(EngineError::Cloud(CloudError::Unauthorized))
                 if self.settings().mode == AccountMode::Cloud =>
             {
                 // The history key may have changed; re-verify with the saved password.

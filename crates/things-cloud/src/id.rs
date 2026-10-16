@@ -38,14 +38,8 @@ pub fn decode(s: &str) -> Result<[u8; 16], IdError> {
     let zeros = s.bytes().take_while(|b| *b == b'1').count();
     let mut n: u128 = 0;
     for c in s[zeros..].chars() {
-        let digit = ALPHABET
-            .iter()
-            .position(|a| *a as char == c)
-            .ok_or(IdError::InvalidChar(c))? as u128;
-        n = n
-            .checked_mul(58)
-            .and_then(|v| v.checked_add(digit))
-            .ok_or(IdError::WrongLength)?;
+        let digit = ALPHABET.iter().position(|a| *a as char == c).ok_or(IdError::InvalidChar(c))? as u128;
+        n = n.checked_mul(58).and_then(|v| v.checked_add(digit)).ok_or(IdError::WrongLength)?;
     }
     let value_len = 16 - (n.leading_zeros() as usize / 8);
     if zeros + value_len != 16 {

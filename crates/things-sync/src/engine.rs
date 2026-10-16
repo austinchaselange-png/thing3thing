@@ -263,9 +263,10 @@ impl Engine {
         if !force {
             for t in &plan.touched {
                 let Some(base) = t.base_rev else { continue };
-                let revs = self.state.revs(&t.id).ok_or_else(|| WriteError::NotFound {
-                    message: "This item was deleted on another device.".into(),
-                })?;
+                let revs = self
+                    .state
+                    .revs(&t.id)
+                    .ok_or_else(|| WriteError::NotFound { message: "This item was deleted on another device.".into() })?;
                 let changed = revs.changed_since(base, t.keys.iter().map(String::as_str));
                 if !changed.is_empty() {
                     return Err(WriteError::Conflict { entity_id: t.id.clone(), fields: changed.iter().map(|k| field_label(k)).collect() });
@@ -304,7 +305,12 @@ impl Engine {
         // Reading is safe. Resending is not.
         if let Ok(report) = self.sync() {
             if report.reconciled.contains(&journal_id) {
-                return Ok(WriteReport { created: plan.created, summary: plan.summary, server_index: self.state.applied_index, reconciled: true });
+                return Ok(WriteReport {
+                    created: plan.created,
+                    summary: plan.summary,
+                    server_index: self.state.applied_index,
+                    reconciled: true,
+                });
             }
         }
         Err(WriteError::Uncertain { message, journal_id })
@@ -318,10 +324,7 @@ fn contains_write(remote: &[Item], expected: &[Item]) -> bool {
     !expected.is_empty()
         && expected.iter().all(|want| {
             remote.iter().any(|got| {
-                got.uuid == want.uuid
-                    && got.kind == want.kind
-                    && got.action == want.action
-                    && stamp(&got.payload) == stamp(&want.payload)
+                got.uuid == want.uuid && got.kind == want.kind && got.action == want.action && stamp(&got.payload) == stamp(&want.payload)
             })
         })
 }
@@ -422,7 +425,14 @@ mod tests {
         assert_eq!(s.engine.state().tasks[&s.task].title, "From iPhone");
 
         // A change to a different field merges without asking.
-        let notes = Mutation::UpdateTask { id: s.task.clone(), base_rev: Some(0), title: None, notes: Some("n".into()), deadline: None, tag_ids: None };
+        let notes = Mutation::UpdateTask {
+            id: s.task.clone(),
+            base_rev: Some(0),
+            title: None,
+            notes: Some("n".into()),
+            deadline: None,
+            tag_ids: None,
+        };
         s.engine.apply(&notes, false, &ctx()).unwrap();
         assert_eq!(s.engine.state().tasks[&s.task].title, "From iPhone");
 

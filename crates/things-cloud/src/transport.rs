@@ -52,10 +52,7 @@ pub fn validate_page(page: &ItemsPage) -> Result<(), CloudError> {
         return Err(CloudError::UnsupportedSchema { found: page.schema, supported: crate::SUPPORTED_SCHEMA });
     }
     if page.current_item_index < page.start_index {
-        return Err(CloudError::Protocol(format!(
-            "server cursor regressed from {} to {}",
-            page.start_index, page.current_item_index
-        )));
+        return Err(CloudError::Protocol(format!("server cursor regressed from {} to {}", page.start_index, page.current_item_index)));
     }
     if page.entries.is_empty() && page.start_index < page.current_item_index {
         return Err(CloudError::Protocol(format!(
@@ -64,11 +61,7 @@ pub fn validate_page(page: &ItemsPage) -> Result<(), CloudError> {
         )));
     }
     if page.next_index() > page.current_item_index {
-        return Err(CloudError::Protocol(format!(
-            "page ends at {} beyond server head {}",
-            page.next_index(),
-            page.current_item_index
-        )));
+        return Err(CloudError::Protocol(format!("page ends at {} beyond server head {}", page.next_index(), page.current_item_index)));
     }
     Ok(())
 }

@@ -63,36 +63,72 @@ pub fn seed(today: NaiveDate, now: f64) -> Vec<Vec<Item>> {
     }
 
     // Today & This Evening
-    let review = s.add(TaskCreate { start_date: Some(today), tags: vec![important.clone()], areas: vec![work.clone()], deadline: Some(today), ..task("Review Q3 budget draft") });
-    s.add(TaskCreate { start_date: Some(today), tags: vec![errand.clone()], areas: vec![personal.clone()], reminder: Some((today, 17 * 3600 + 30 * 60)), ..task("Pick up dry cleaning") });
+    let review = s.add(TaskCreate {
+        start_date: Some(today),
+        tags: vec![important.clone()],
+        areas: vec![work.clone()],
+        deadline: Some(today),
+        ..task("Review Q3 budget draft")
+    });
+    s.add(TaskCreate {
+        start_date: Some(today),
+        tags: vec![errand.clone()],
+        areas: vec![personal.clone()],
+        reminder: Some((today, 17 * 3600 + 30 * 60)),
+        ..task("Pick up dry cleaning")
+    });
     s.add(TaskCreate { start_date: Some(today), tags: vec![calls.clone()], ..task("Call the dentist to reschedule") });
     s.add(TaskCreate { start_date: Some(today), evening: true, areas: vec![personal.clone()], ..task("Plan weekend hike") });
     s.add(TaskCreate { start_date: Some(today), evening: true, tags: vec![home_tag.clone()], ..task("Water the plants") });
 
     // Projects with headings
-    let trip = s.add(TaskCreate { task_type: TaskType::Project, areas: vec![personal.clone()], deadline: Some(d(24)), notes: "Five days in late autumn. Budget ~€1,200.".into(), ..task("Trip to Lisbon") });
+    let trip = s.add(TaskCreate {
+        task_type: TaskType::Project,
+        areas: vec![personal.clone()],
+        deadline: Some(d(24)),
+        notes: "Five days in late autumn. Budget ~€1,200.".into(),
+        ..task("Trip to Lisbon")
+    });
     let book = s.add(TaskCreate { task_type: TaskType::Heading, projects: vec![trip.clone()], ..task("Book") });
     let pack = s.add(TaskCreate { task_type: TaskType::Heading, projects: vec![trip.clone()], ..task("Packing") });
-    let flights = s.add(TaskCreate { headings: vec![book.clone()], start_date: Some(today), tags: vec![important.clone()], ..task("Compare flight prices") });
+    let flights = s.add(TaskCreate {
+        headings: vec![book.clone()],
+        start_date: Some(today),
+        tags: vec![important.clone()],
+        ..task("Compare flight prices")
+    });
     s.add(TaskCreate { headings: vec![book.clone()], ..task("Reserve apartment in Alfama") });
     s.add(TaskCreate { headings: vec![book.clone()], start_date: Some(d(5)), st: start::SOMEDAY, ..task("Book Sintra day trip") });
     let packing_list = s.add(TaskCreate { headings: vec![pack.clone()], ..task("Packing list") });
     s.add(TaskCreate { headings: vec![pack.clone()], tags: vec![errand.clone()], ..task("Buy travel adapter") });
 
-    let site = s.add(TaskCreate { task_type: TaskType::Project, areas: vec![work.clone()], deadline: Some(d(10)), ..task("Website redesign") });
+    let site =
+        s.add(TaskCreate { task_type: TaskType::Project, areas: vec![work.clone()], deadline: Some(d(10)), ..task("Website redesign") });
     s.add(TaskCreate { projects: vec![site.clone()], start_date: Some(today), ..task("Send wireframes to Priya") });
-    s.add(TaskCreate { projects: vec![site.clone()], tags: vec![waiting.clone()], notes: "Asked on Monday".into(), ..task("Copy for the About page") });
+    s.add(TaskCreate {
+        projects: vec![site.clone()],
+        tags: vec![waiting.clone()],
+        notes: "Asked on Monday".into(),
+        ..task("Copy for the About page")
+    });
     s.add(TaskCreate { projects: vec![site.clone()], start_date: Some(d(3)), st: start::SOMEDAY, ..task("Usability test with 5 people") });
     s.add(TaskCreate { projects: vec![site.clone()], ..task("Pick a typeface") });
 
-    let clean = s.add(TaskCreate { task_type: TaskType::Project, areas: vec![personal.clone()], st: start::SOMEDAY, ..task("Spring cleaning") });
+    let clean =
+        s.add(TaskCreate { task_type: TaskType::Project, areas: vec![personal.clone()], st: start::SOMEDAY, ..task("Spring cleaning") });
     s.add(TaskCreate { projects: vec![clean.clone()], ..task("Donate old clothes") });
     s.add(TaskCreate { projects: vec![clean], ..task("Clear out the garage") });
 
     // Area tasks, Upcoming, Someday
     s.add(TaskCreate { areas: vec![health.clone()], start_date: Some(d(1)), st: start::SOMEDAY, ..task("Annual check-up") });
     s.add(TaskCreate { areas: vec![health.clone()], ..task("Research running shoes") });
-    s.add(TaskCreate { areas: vec![work.clone()], start_date: Some(d(2)), st: start::SOMEDAY, tags: vec![calls], ..task("1:1 with Jordan") });
+    s.add(TaskCreate {
+        areas: vec![work.clone()],
+        start_date: Some(d(2)),
+        st: start::SOMEDAY,
+        tags: vec![calls],
+        ..task("1:1 with Jordan")
+    });
     s.add(TaskCreate { areas: vec![work.clone()], start_date: Some(d(8)), st: start::SOMEDAY, ..task("Submit expense report") });
     s.add(TaskCreate { start_date: Some(d(15)), st: start::SOMEDAY, ..task("Renew passport") });
     s.add(TaskCreate { st: start::SOMEDAY, ..task("Learn to make sourdough") });
@@ -118,7 +154,8 @@ pub fn seed(today: NaiveDate, now: f64) -> Vec<Vec<Item>> {
     entries.push(cl);
 
     // A repeating to-do (template + instance), as Things models it.
-    let rule = recurrence::build_rule(&RepeatSpec { unit: RepeatUnit::Week, interval: 1, weekdays: vec![1, 4], month_day: None }, today).unwrap();
+    let rule =
+        recurrence::build_rule(&RepeatSpec { unit: RepeatUnit::Week, interval: 1, weekdays: vec![1, 4], month_day: None }, today).unwrap();
     let c = TaskCreate { id: id::new_id(), index: 1, start_date: Some(today), areas: vec![health], ..task("Go for a run") };
     entries.push(c.build_recurring(&rule, today, now).unwrap());
     entries

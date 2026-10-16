@@ -40,7 +40,8 @@ impl CredentialStore for OsCredentialStore {
         match Self::entry(email)?.get_password() {
             Ok(raw) => {
                 let raw = Secret::new(raw);
-                let v: Value = serde_json::from_str(raw.expose()).map_err(|_| CredentialError("stored credentials are unreadable".into()))?;
+                let v: Value =
+                    serde_json::from_str(raw.expose()).map_err(|_| CredentialError("stored credentials are unreadable".into()))?;
                 let field = |k: &str| v.get(k).and_then(Value::as_str).map(Secret::new);
                 match (field("password"), field("historyKey")) {
                     (Some(password), Some(history_key)) => Ok(Some(StoredCredentials { password, history_key })),
