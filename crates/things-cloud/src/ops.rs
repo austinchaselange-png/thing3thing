@@ -34,7 +34,7 @@ fn check_ids<'a>(ids: impl IntoIterator<Item = &'a String>) -> Result<(), OpErro
 /// engine crashes on non-positive `ix` for tasks.
 pub fn next_top_index_below(min_sibling: Option<i64>) -> i64 {
     match min_sibling {
-        Some(m) if m - 1 >= 1 => m - 1,
+        Some(m) if m > 1 => m - 1,
         _ => 1,
     }
 }
@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(instance.payload["rt"], json!([template.uuid]));
         assert_eq!(instance.payload["rr"], Value::Null);
         let mut s = State::new();
-        s.apply_entries(0, &[items.clone()]).unwrap();
+        s.apply_entries(0, std::slice::from_ref(&items)).unwrap();
         assert!(s.tasks[&template.uuid].is_recurring_template());
         assert!(!s.tasks[&instance.uuid].is_recurring_template());
     }

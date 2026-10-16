@@ -54,7 +54,7 @@ export class MockBackend implements Backend {
     return () => this.listeners.delete(listener);
   }
 
-  async apply(m: Mutation): Promise<WriteReport> {
+  async apply(m: Mutation, _opts?: { force?: boolean }): Promise<WriteReport> {
     await this.wait();
     if (!this.state.policy.writes) throw { code: "readOnly", message: "Writing is turned off." } satisfies WriteError;
     if (DESTRUCTIVE.includes(m.type) && !this.state.policy.destructive)

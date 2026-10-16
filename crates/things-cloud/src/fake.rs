@@ -57,6 +57,9 @@ impl FakeCloud {
 
     /// Opens (or creates with `seed`) a fake whose history is saved to `path`.
     pub fn persistent(path: PathBuf, seed: impl FnOnce() -> Vec<Vec<Item>>) -> Self {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let fake = FakeCloud::new("demo@cairn.local", "demo");
         let history = std::fs::read(&path)
             .ok()

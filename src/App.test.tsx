@@ -61,7 +61,7 @@ describe("App", () => {
   it("routes conflicts to a dialog that can overwrite explicitly", async () => {
     const calls: { m: Mutation; force?: boolean }[] = [];
     const original = backend.apply.bind(backend);
-    backend.apply = async (m, opts) => {
+    backend.apply = async (m: Mutation, opts?: { force?: boolean }) => {
       calls.push({ m, force: opts?.force });
       if (!opts?.force) throw { code: "conflict", message: "changed", entityId: "x", fields: ["title"] } satisfies WriteError;
       return original(m);

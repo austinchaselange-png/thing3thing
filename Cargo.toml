@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/things-cloud", "crates/things-sync"]
+members = ["crates/things-cloud", "crates/things-sync", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
