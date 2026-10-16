@@ -19,6 +19,8 @@ pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::
         .title("Cairn")
         .inner_size(1120.0, 740.0)
         .min_inner_size(720.0, 480.0)
+        .decorations(false) // the UI draws its own title bar and traffic lights
+        .shadow(true)
         .center()
         .visible(visible);
     if mica {

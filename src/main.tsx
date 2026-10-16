@@ -2,8 +2,14 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { isTauri } from "./backend";
+import { initTheme } from "./lib/theme";
 import { useStore } from "./store";
 import "./styles/app.css";
+
+initTheme();
+// Dim the traffic lights while the window is in the background, like macOS.
+window.addEventListener("blur", () => document.body.classList.add("inactive"));
+window.addEventListener("focus", () => document.body.classList.remove("inactive"));
 
 // Menu/tray actions from the Rust side arrive as events.
 if (isTauri()) {

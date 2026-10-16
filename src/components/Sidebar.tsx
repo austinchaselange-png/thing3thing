@@ -4,8 +4,9 @@ import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
 import type { ListId, Selection, Task, When } from "../types";
-import { AreaIcon, CloudIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
+import { AreaIcon, CloudIcon, GearIcon, LaptopIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
 import { Popover } from "./Pickers";
+import { TrafficLights } from "./WindowControls";
 
 const LISTS: ListId[][] = [["inbox"], ["today", "upcoming", "anytime", "someday"], ["logbook", "trash"]];
 
@@ -24,7 +25,7 @@ function dropAction(target: Selection): ((t: Task) => void) | null {
   return w ? (t) => void schedule(t, w) : null;
 }
 
-function NavItem({ sel, icon, label, count, badge }: { sel: Selection; icon: ReactNode; label: string; count?: number; badge?: number }) {
+function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; icon: ReactNode; label: string; count?: number; badge?: number; strong?: boolean }) {
   const active = useStore((s) => sameSel(s.selection, sel));
   const [over, setOver] = useState(false);
   const action = dropAction(sel);
@@ -37,7 +38,7 @@ function NavItem({ sel, icon, label, count, badge }: { sel: Selection; icon: Rea
   };
   return (
     <button
-      className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}`}
+      className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}`}
       onClick={() => useStore.getState().select(sel)}
       onDragOver={(e) => {
         if (action && e.dataTransfer.types.includes("application/x-cairn-task")) {
@@ -92,6 +93,7 @@ export function SyncIndicator() {
   } else {
     text = sync.lastSyncedAt ? `Synced ${ago(sync.lastSyncedAt)}` : "Not synced yet";
   }
+  const local = account.mode === "demo" && tone === "ok" && !pending;
   const open = () => {
     const s = useStore.getState();
     if (issues[0]) s.openDialog({ kind: "issue", issue: issues[0] });
@@ -99,8 +101,8 @@ export function SyncIndicator() {
   };
   return (
     <button className={`sync-indicator ${tone}`} onClick={open} title={sync.lastError ?? text}>
-      {tone === "warn" ? <WarningIcon size={13} /> : <CloudIcon size={13} className={sync.phase === "syncing" || pending ? "spin-soft" : ""} />}
-      <span>{account.mode === "demo" ? `Demo · ${text}` : text}</span>
+      {tone === "warn" ? <WarningIcon size={13} /> : local ? <LaptopIcon size={13} /> : <CloudIcon size={13} className={sync.phase === "syncing" || pending ? "spin-soft" : ""} />}
+      <span>{local ? "Stored on this PC" : text}</span>
       {account.mode === "cloud" && !policy.writes && (
         <span className="ro-badge" title="Read-only: writes to Things Cloud are turned off">
           <LockIcon size={11} /> Read-only
@@ -136,6 +138,9 @@ export function Sidebar() {
 
   return (
     <nav className="sidebar" aria-label="Lists">
+      <div className="side-top" data-tauri-drag-region>
+        <TrafficLights />
+      </div>
       <div className="sidebar-scroll">
         {LISTS.map((group, i) => (
           <div className="nav-group" key={i}>
@@ -157,7 +162,7 @@ export function Sidebar() {
         {tree.looseProjects.length > 0 && <div className="nav-group">{tree.looseProjects.map(project)}</div>}
         {tree.areas.map(({ area, projects }) => (
           <div className="nav-group" key={area.id}>
-            <NavItem sel={{ kind: "area", id: area.id }} icon={<AreaIcon style={{ color: "var(--c-area)" }} />} label={area.title || "Untitled Area"} />
+            <NavItem sel={{ kind: "area", id: area.id }} icon={<AreaIcon style={{ color: "var(--c-area)" }} />} label={area.title || "Untitled Area"} strong />
             {projects.map(project)}
           </div>
         ))}

@@ -129,23 +129,27 @@ function ProjectHeader({ project }: { project: Task }) {
   );
 }
 
+const EMPTY: Record<string, [string, string]> = {
+  inbox: ["Inbox Zero", "Capture anything with Ctrl+N, or from anywhere with the Quick Entry shortcut."],
+  today: ["All clear for today", "Nothing planned. Enjoy it — or pull something in from Anytime."],
+  upcoming: ["Nothing scheduled", "To-dos with a start date appear here, grouped by day."],
+  anytime: ["No to-dos here", "To-dos you can do at any time collect here."],
+  someday: ["No someday ideas yet", "Park things you might want to do later."],
+  logbook: ["Nothing completed yet", "Completed to-dos are filed here."],
+  trash: ["Trash is empty", "Deleted to-dos stay here until you empty it."],
+};
+
 function EmptyState({ sel }: { sel: Selection }) {
-  const msg =
-    sel.kind === "list"
-      ? {
-          inbox: "Your Inbox is empty. Capture anything with Ctrl+N or the quick-entry shortcut.",
-          today: "Nothing planned for today. Enjoy it — or pull something in from Anytime.",
-          upcoming: "Nothing scheduled.",
-          anytime: "No to-dos here.",
-          someday: "No someday ideas yet.",
-          logbook: "Completed to-dos will appear here.",
-          trash: "Trash is empty.",
-        }[sel.id]
-      : "No to-dos.";
+  const [title, msg] = (sel.kind === "list" && EMPTY[sel.id]) || ["No to-dos", sel.kind === "project" ? "Press Ctrl+N to add the first to-do to this project." : "Nothing here yet."];
   const meta = sel.kind === "list" ? LIST_META[sel.id] : null;
   return (
     <div className="empty-state">
-      {meta && <meta.Icon size={56} style={{ color: meta.color, opacity: 0.25 }} />}
+      {meta && (
+        <div className="empty-art" style={{ color: meta.color }}>
+          <meta.Icon size={30} />
+        </div>
+      )}
+      <h3>{title}</h3>
       <p>{msg}</p>
     </div>
   );

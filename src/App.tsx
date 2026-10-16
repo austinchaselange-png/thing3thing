@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { moveTo, schedule, toggleComplete, trash } from "./actions";
 import { getBackend } from "./backend";
 import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, QuickFind, ReadOnlyBanner, SettingsDialog, Toasts, WriteOptInDialog } from "./components/Dialogs";
-import { ArrowRightIcon, CalendarIcon, HeadingIcon, PlusIcon, SearchIcon, TrashIcon } from "./components/Icons";
-import { ListView } from "./components/ListView";
+import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, HeadingIcon, PlusIcon, SearchIcon, TrashIcon } from "./components/Icons";
+import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
+import { TrafficLights } from "./components/WindowControls";
 import { useStore } from "./store";
 import type { ListId, Task } from "./types";
 
@@ -34,12 +35,15 @@ export function App() {
   const selectedId = useStore((s) => s.selectedId);
   const view = useStore((s) => s.view);
   const [picker, setPicker] = useState<KbPicker>(null);
+  const [scrolled, setScrolled] = useState(false);
   const selected: Task | undefined = selectedId ? view?.tasks.find((t) => t.id === selectedId) : undefined;
   const pickerTask = picker?.taskId ? view?.tasks.find((t) => t.id === picker.taskId) : undefined;
 
   useEffect(() => {
     void useStore.getState().init();
   }, []);
+
+  useEffect(() => setScrolled(false), [selection]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("mica", !!app?.settings.mica && !!app?.platform.micaAvailable);
@@ -99,6 +103,9 @@ export function App() {
   if (loadError)
     return (
       <div className="splash">
+        <div className="splash-top" data-tauri-drag-region>
+          <TrafficLights />
+        </div>
         <h1>Cairn couldn't start</h1>
         <p className="error-text">{loadError}</p>
         <button className="btn primary" onClick={() => void useStore.getState().init()}>
@@ -109,6 +116,9 @@ export function App() {
   if (!app || !view)
     return (
       <div className="splash" aria-busy="true">
+        <div className="splash-top" data-tauri-drag-region>
+          <TrafficLights />
+        </div>
         <div className="spinner" />
         <p>Loading your to-dos…</p>
       </div>
@@ -120,7 +130,18 @@ export function App() {
   return (
     <div className="app">
       <Sidebar />
-      <main className="main">
+      <main className="main" onScrollCapture={(e) => (e.target as HTMLElement).classList?.contains("list-view") && setScrolled((e.target as HTMLElement).scrollTop > 44)}>
+        <header className={`topbar${scrolled ? " scrolled" : ""}`} data-tauri-drag-region>
+          <span className="tb-title" data-tauri-drag-region>
+            {app.account.mode !== "signedOut" && selectionTitle(selection, view)}
+          </span>
+          <span className="grow" data-tauri-drag-region />
+          <button className="search-field" onClick={() => useStore.getState().openDialog({ kind: "quickFind" })} aria-label="Quick Find">
+            <SearchIcon size={13} />
+            <span className="grow">Quick Find</span>
+            <kbd>Ctrl F</kbd>
+          </button>
+        </header>
         <IssueBanner />
         <ReadOnlyBanner />
         {app.account.mode === "signedOut" ? <SignedOut /> : <ListView />}
@@ -148,10 +169,6 @@ export function App() {
               <TrashIcon />
             </button>
           )}
-          <span className="grow" />
-          <button className="tool" title="Quick Find (Ctrl+F)" aria-label="Quick Find" onClick={() => useStore.getState().openDialog({ kind: "quickFind" })}>
-            <SearchIcon />
-          </button>
         </footer>
       </main>
 
@@ -207,14 +224,29 @@ function SignedOut() {
   const openDialog = useStore((s) => s.openDialog);
   return (
     <div className="welcome">
+      <img className="welcome-icon" src="/favicon.png" alt="" />
       <h1>Welcome to Cairn</h1>
-      <p>A Things-style task manager for Windows that syncs with Things on your iPhone through Things Cloud.</p>
-      <div className="welcome-actions">
-        <button className="btn primary" onClick={() => openDialog({ kind: "settings", tab: "account" })}>
-          Connect Things Cloud
+      <p className="lead">A calm, Things-style task manager for Windows. Keep your to-dos on this PC, or sync them with Things on your iPhone.</p>
+      <div className="card choice-list">
+        <button className="choice" onClick={() => openDialog({ kind: "settings", tab: "account" })}>
+          <span className="choice-ic" style={{ color: "var(--accent)" }}>
+            <CloudIcon size={18} />
+          </span>
+          <span className="grow">
+            <b>Connect Things Cloud</b>
+            <span>Sync with Things on your iPhone. Starts read-only.</span>
+          </span>
+          <ChevronIcon size={13} className="choice-go" />
         </button>
-        <button className="btn" onClick={() => void getBackend().useDemo()}>
-          Explore with demo data
+        <button className="choice" onClick={() => void getBackend().useDemo()}>
+          <span className="choice-ic" style={{ color: "var(--c-logbook)" }}>
+            <PlusIcon size={18} />
+          </span>
+          <span className="grow">
+            <b>Start fresh on this PC</b>
+            <span>An empty list stored only on this computer.</span>
+          </span>
+          <ChevronIcon size={13} className="choice-go" />
         </button>
       </div>
     </div>

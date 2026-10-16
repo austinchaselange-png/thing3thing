@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getBackend } from "../backend";
 import { todayYmd } from "../lib/dates";
+import { getThemePref, setThemePref, type ThemePref } from "../lib/theme";
 import { belongsTo, buildIndex, search } from "../lib/lists";
 import { isWriteError, useStore } from "../store";
 import type { Issue, ListId, Selection, Settings, Task } from "../types";
@@ -84,7 +85,7 @@ function AccountTab() {
     );
   return (
     <div className="settings-section">
-      {app.account.mode === "demo" && <div className="callout">You are using demo data stored only on this PC. Nothing is sent anywhere.</div>}
+      {app.account.mode === "demo" && <div className="callout">Your to-dos are stored only on this PC. Nothing is sent anywhere.</div>}
       <h3>Connect Things Cloud</h3>
       <p className="muted">Use the email and password of the Things Cloud account your iPhone syncs with. Cairn starts in <strong>read-only</strong> mode; you can enable writing later.</p>
       <form
@@ -111,7 +112,7 @@ function AccountTab() {
       </p>
       {app.account.mode !== "demo" && (
         <button className="btn" onClick={() => void run(() => backend.useDemo())}>
-          Use demo data instead
+          Keep to-dos on this PC instead
         </button>
       )}
     </div>
@@ -146,7 +147,7 @@ function SyncTab() {
       <h3>Writing to Things Cloud</h3>
       <Toggle
         label="Allow changes to be saved to Things Cloud"
-        hint={cloud ? "Off by default. Edits will appear on your iPhone." : "Demo data is always editable."}
+        hint={cloud ? "Off by default. Edits will appear on your iPhone." : "To-dos stored on this PC are always editable."}
         checked={policy.writes}
         disabled={!cloud}
         onChange={(v) => (v ? openDialog({ kind: "writeOptIn" }) : void run(() => backend.setPolicy({ writes: false, destructive: false })))}
@@ -159,7 +160,7 @@ function SyncTab() {
         onChange={(v) => (v ? openDialog({ kind: "destructiveOptIn" }) : void run(() => backend.setPolicy({ writes: policy.writes, destructive: false })))}
       />
       <PollSetting />
-      {account.mode === "demo" && (
+      {account.mode === "demo" && import.meta.env.DEV && (
         <>
           <h3>Testing</h3>
           <p className="muted">Pretend Things on your iPhone changed a to-do. Edit the same to-do here afterwards to see conflict handling.</p>
@@ -232,6 +233,7 @@ function GeneralTab() {
   const update = (patch: Partial<Settings>) => void run(() => getBackend().updateSettings(patch));
   return (
     <div className="settings-section">
+      <AppearanceRow />
       <label className="select-row">
         Quick Entry shortcut
         <ShortcutInput value={s.quickEntryShortcut} onChange={(v) => update({ quickEntryShortcut: v })} />
@@ -246,6 +248,36 @@ function GeneralTab() {
         disabled={!app.platform.micaAvailable}
         onChange={(v) => update({ mica: v })}
       />
+    </div>
+  );
+}
+
+function AppearanceRow() {
+  const [pref, setPref] = useState<ThemePref>(getThemePref);
+  const opts: [ThemePref, string][] = [
+    ["system", "System"],
+    ["light", "Light"],
+    ["dark", "Dark"],
+  ];
+  return (
+    <div className="select-row">
+      Appearance
+      <div className="seg" role="radiogroup" aria-label="Appearance">
+        {opts.map(([id, label]) => (
+          <button
+            key={id}
+            role="radio"
+            aria-checked={pref === id}
+            className={pref === id ? "active" : ""}
+            onClick={() => {
+              setThemePref(id);
+              setPref(id);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -279,7 +311,7 @@ export function SettingsDialog({ tab: initial }: { tab?: "account" | "sync" | "g
   ] as const;
   return (
     <Modal title="Settings" onClose={close} width={560}>
-      <div className="tabs" role="tablist">
+      <div className="tabs seg" role="tablist">
         {tabs.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>
             {label}

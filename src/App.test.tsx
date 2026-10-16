@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { setBackendForTests } from "./backend";
 import { MockBackend } from "./backend/mock";
+import { mockSnapshot } from "./backend/mockData";
 import { useStore } from "./store";
 import type { Mutation, WriteError } from "./types";
 
@@ -15,7 +16,7 @@ function reset(backend: MockBackend) {
 describe("App", () => {
   let backend: MockBackend;
   beforeEach(() => {
-    backend = new MockBackend({ latencyMs: 0 });
+    backend = new MockBackend({ latencyMs: 0, snapshot: () => mockSnapshot() });
     reset(backend);
   });
 

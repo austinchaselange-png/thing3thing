@@ -154,6 +154,13 @@ export const CloudIcon = (p: P) => (
   </Svg>
 );
 
+export const LaptopIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3.5" width="10" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M1.5 12.5h13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
 export const LockIcon = (p: P) => (
   <Svg {...p}>
     <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.3" />

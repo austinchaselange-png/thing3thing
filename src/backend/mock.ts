@@ -1,8 +1,7 @@
-import type { AppState, Mutation, Settings, WriteError, WritePolicy, WriteReport } from "../types";
+import type { AppState, Mutation, Settings, Snapshot, WriteError, WritePolicy, WriteReport } from "../types";
 import { DESTRUCTIVE } from "../types";
 import { applyMutation, MutationError } from "../lib/applyMutation";
 import type { Backend } from "./Backend";
-import { mockSnapshot } from "./mockData";
 
 const SETTINGS_KEY = "cairn.mock.settings";
 
@@ -15,18 +14,26 @@ function loadSettings(): Settings {
   }
 }
 
-/** In-memory backend with demo data. Writes are always allowed (nothing leaves the browser). */
+export function emptySnapshot(): Snapshot {
+  return { tasks: [], checklist: [], areas: [], tags: [], serverIndex: 0 };
+}
+
+/** In-memory backend for the browser preview and tests. Starts empty unless a snapshot is given.
+ * Writes are always allowed (nothing leaves the browser). */
 export class MockBackend implements Backend {
   readonly kind = "mock" as const;
   private state: AppState;
   private listeners = new Set<(s: AppState) => void>();
   private latency: number;
 
-  constructor(opts: { latencyMs?: number } = {}) {
+  private initial: () => Snapshot;
+
+  constructor(opts: { latencyMs?: number; snapshot?: () => Snapshot } = {}) {
+    this.initial = opts.snapshot ?? emptySnapshot;
     this.latency = opts.latencyMs ?? 120;
     this.state = {
       account: { mode: "demo", email: null },
-      snapshot: mockSnapshot(),
+      snapshot: this.initial(),
       sync: { phase: "idle", lastSyncedAt: Date.now(), lastError: null, nextAttemptAt: null },
       policy: { writes: true, destructive: true },
       issues: [],
@@ -83,7 +90,7 @@ export class MockBackend implements Backend {
   async disconnect() {}
 
   async useDemo() {
-    this.emit({ snapshot: mockSnapshot(), account: { mode: "demo", email: null } });
+    this.emit({ snapshot: this.initial(), account: { mode: "demo", email: null } });
   }
 
   async setPolicy(p: WritePolicy) {

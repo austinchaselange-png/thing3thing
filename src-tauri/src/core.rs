@@ -20,7 +20,7 @@ use things_cloud::http::HttpTransport;
 use things_cloud::{CloudError, Item, Secret, Transport};
 use things_sync::cache::{Cache, JournalEntry};
 use things_sync::mutation::Ctx;
-use things_sync::{demo, Engine, EngineError, Mutation, Snapshot, WriteError, WritePolicy, WriteReport};
+use things_sync::{Engine, EngineError, Mutation, Snapshot, WriteError, WritePolicy, WriteReport};
 
 use crate::credentials::{CredentialStore, OsCredentialStore, StoredCredentials};
 use crate::settings::{AccountMode, Settings, SettingsPatch};
@@ -191,9 +191,8 @@ impl Core {
     }
 
     fn open_demo(&self, inner: &mut Inner) -> Result<(), EngineError> {
-        let fake = Arc::new(FakeCloud::persistent(self.data_dir.join("demo-history.json"), || {
-            demo::seed(Local::now().date_naive(), things_cloud::dates::now_ts())
-        }));
+        // The local ("on this PC") account starts empty; no sample data is seeded.
+        let fake = Arc::new(FakeCloud::persistent(self.data_dir.join("demo-history.json"), Vec::new));
         let cache = Cache::open(&self.data_dir.join("demo-cache.sqlite"))?;
         let mut engine = Engine::open(fake.clone(), fake.history_key(), cache, WritePolicy { writes: true, destructive: true })?;
         // The demo "server" is local, so load it right away.

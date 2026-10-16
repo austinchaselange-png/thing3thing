@@ -1,5 +1,4 @@
-// Sample data for running the UI in a browser (npm run dev) and in tests.
-// The desktop app uses the equivalent Rust demo account instead.
+// Sample data for tests only. The app itself starts with an empty list.
 import type { Snapshot, Task } from "../types";
 import { addDays, todayYmd } from "../lib/dates";
 

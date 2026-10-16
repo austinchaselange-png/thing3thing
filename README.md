@@ -29,7 +29,7 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
   always-on-top window that understands `Pay rent friday at 9am #Home due oct 31`.
 * **Windows integration:** tray icon, close-to-tray, launch at sign-in,
   reminder notifications, single instance, optional Mica sidebar on Windows 11,
-  light/dark mode.
+  System/Light/Dark appearance in MacroTrack's macOS-style look.
 * **Things Cloud connector:** local, in-process Rust connector — no hosted
   service, no local server. Offline cache (SQLite), background sync with
   back-off, and visible sync status.
@@ -46,8 +46,8 @@ Download the latest `Cairn_*_x64-setup.exe` (or `.msi`) from the
 **Windows build** workflow's artifacts on GitHub Actions. The installers are
 unsigned, so SmartScreen will ask you to confirm.
 
-On first launch Cairn shows demo data stored only on your PC. Connect your
-account in **Settings → Account**.
+On first launch Cairn starts with an empty list stored only on your PC.
+Connect your account in **Settings → Account**.
 
 ## Keyboard shortcuts
 
@@ -70,8 +70,8 @@ Windows).
 
 ```powershell
 npm ci
-npm run dev           # UI only, in a browser, with mock data
-npm run tauri dev     # full desktop app (demo account)
+npm run dev           # UI only, in a browser (in-memory, starts empty)
+npm run tauri dev     # full desktop app (local account)
 npm test              # frontend tests
 cargo test --workspace
 npm run tauri build   # installers in target/release/bundle/
