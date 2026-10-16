@@ -336,7 +336,9 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let t = HttpTransport::with_endpoint(&format!("http://{addr}"), Duration::ZERO, Duration::from_secs(2)).unwrap();
+        // Windows retries refused connections for ~2 s, so allow longer than
+        // that; a timeout here would (correctly, conservatively) be "uncertain".
+        let t = HttpTransport::with_endpoint(&format!("http://{addr}"), Duration::ZERO, Duration::from_secs(10)).unwrap();
         match t.commit(&key(), 0, &item) {
             Err(CommitError::Rejected(CloudError::Network(msg))) => assert!(!msg.contains(KEY), "{msg}"),
             other => panic!("unexpected {other:?}"),
