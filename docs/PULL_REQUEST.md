@@ -1,4 +1,4 @@
-# Tings 3: Things-style Windows task manager with a local Things Cloud connector
+# Things 3: Things-style Windows task manager with a local Things Cloud connector
 
 ## Summary
 

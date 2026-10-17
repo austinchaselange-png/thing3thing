@@ -205,6 +205,54 @@ export const HeadingIcon = (p: P) => (
   </Svg>
 );
 
+export const CopyIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="5" width="8.5" height="8.5" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M10.5 5V3.8a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.4a1.3 1.3 0 0 0 1.3 1.3H5" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const PencilIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M10.6 2.9a1.6 1.6 0 0 1 2.3 2.3L6 12.1l-3 .8.8-3 6.8-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="m9.4 4.1 2.3 2.3" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const CheckIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="m3 8.4 3.2 3.1L13 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+export const UndoIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M5.5 3.5 2.5 6.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M2.8 6.5h6.7a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const OpenIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 2.5h4.5V7M13.2 2.8 7.5 8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M11.5 9.5v2.7a1.3 1.3 0 0 1-1.3 1.3H3.8a1.3 1.3 0 0 1-1.3-1.3V5.8a1.3 1.3 0 0 1 1.3-1.3h2.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const CancelIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" />
+    <path d="m4.2 11.8 7.6-7.6" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const ClipboardIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="10" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 3V2.4c0-.5.4-.9.9-.9h2.2c.5 0 .9.4.9.9V3M5.5 7.5h5M5.5 10h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
 export const LIST_META = {
   inbox: { title: "Inbox", Icon: InboxIcon, color: "var(--c-inbox)" },
   today: { title: "Today", Icon: StarIcon, color: "var(--c-today)" },

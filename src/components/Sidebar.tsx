@@ -5,6 +5,7 @@ import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists
 import { useStore } from "../store";
 import type { ListId, Selection, Task, When } from "../types";
 import { AreaIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
+import { areaMenu, listMenu, tagMenu, taskMenu } from "./menus";
 import { Popover } from "./Pickers";
 import { SidebarWidgets } from "./SidebarWidgets";
 
@@ -25,6 +26,22 @@ function dropAction(target: Selection): ((t: Task) => void) | null {
   return w ? (t) => void schedule(t, w) : null;
 }
 
+function menuFor(sel: Selection) {
+  const v = useStore.getState().view;
+  if (!v) return [];
+  if (sel.kind === "list") return listMenu(sel.id);
+  if (sel.kind === "area") {
+    const a = v.areas.find((x) => x.id === sel.id);
+    return a ? areaMenu(a) : [];
+  }
+  if (sel.kind === "tag") {
+    const t = v.tags.find((x) => x.id === sel.id);
+    return t ? tagMenu(t) : [];
+  }
+  const p = v.tasks.find((x) => x.id === sel.id);
+  return p ? taskMenu(p) : [];
+}
+
 function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; icon: ReactNode; label: string; count?: number; badge?: number; strong?: boolean }) {
   const active = useStore((s) => sameSel(s.selection, sel));
   const [over, setOver] = useState(false);
@@ -40,6 +57,10 @@ function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; i
     <button
       className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}`}
       onClick={() => useStore.getState().select(sel)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        useStore.getState().openMenu(e, menuFor(sel));
+      }}
       onDragOver={(e) => {
         if (action && e.dataTransfer.types.includes("application/x-tings3-task")) {
           e.preventDefault();
@@ -152,7 +173,7 @@ export function Sidebar() {
       <div className="side-top" data-tauri-drag-region>
         <img className="brand-icon" src="/app-icon.png" alt="" data-tauri-drag-region />
         <span className="brand-name" data-tauri-drag-region>
-          Tings 3
+          Things 3
         </span>
       </div>
       <div className="sidebar-scroll">

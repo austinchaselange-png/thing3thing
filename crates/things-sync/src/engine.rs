@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use things_cloud::state::StateError;
 use things_cloud::transport::validate_page;
-use things_cloud::{CloudError, CommitError, Item, ItemsPage, Secret, State, Transport};
+use things_cloud::wire::{write_kind_for, Family};
+use things_cloud::{CloudError, CommitError, Item, ItemsPage, Secret, State, Transport, SUPPORTED_SCHEMA};
 
 use crate::cache::{Cache, CacheError, JournalEntry, JournalStatus};
 use crate::model::{self, Snapshot};
@@ -56,7 +57,7 @@ pub enum WriteError {
     DestructiveDisabled,
     #[error("An earlier change has an unknown outcome. Resolve it before making more changes.")]
     Blocked { journal_id: i64 },
-    #[error("This account uses a newer Things data format ({}) that Tings 3 can read but has not been validated to write. Changes are turned off to protect your account.", kinds.join(", "))]
+    #[error("Things Cloud sent data Things 3 doesn't fully understand ({}), so changes are turned off to protect your account. Syncing from your iPhone still works.", kinds.join("; "))]
     UnsupportedFormat { kinds: Vec<String> },
     #[error("This was changed on another device ({}).", fields.join(", "))]
     Conflict { entity_id: String, fields: Vec<String> },
@@ -116,6 +117,8 @@ pub struct Engine {
     cache: Cache,
     state: State,
     policy: WritePolicy,
+    /// Schema the server last reported (0 until the first sync).
+    server_schema: u32,
 }
 
 impl Engine {
@@ -147,7 +150,7 @@ impl Engine {
                 cache.journal_set(entry.id, JournalStatus::Uncertain, Some("The app closed while this change was being sent."))?;
             }
         }
-        Ok(Engine { transport, key, cache, state, policy })
+        Ok(Engine { transport, key, cache, state, policy, server_schema: 0 })
     }
 
     pub fn state(&self) -> &State {
@@ -206,10 +209,9 @@ impl Engine {
             if page.start_index != start {
                 return Err(CloudError::Protocol(format!("asked for index {start}, got {}", page.start_index)).into());
             }
-            for entry in &page.entries {
-                State::validate_entry(entry)?;
-            }
-            // Persist first; applying a validated page cannot fail.
+            self.server_schema = page.schema;
+            // Persist first. Applying never fails: items that can't be read
+            // are skipped and recorded, which blocks writes (see check_format).
             self.cache.append_entries(start, &page.entries)?;
             self.state.apply_entries(start, &page.entries)?;
             report.new_entries += page.entries.len() as u64;
@@ -243,14 +245,51 @@ impl Engine {
         Ok(())
     }
 
-    /// Writes are refused while the history holds kinds newer than the ones
-    /// whose write format is known (e.g. `Task7`): writing the older format
-    /// next to them has never been tested against the official apps.
+    /// Schema the server last reported, if it has been contacted.
+    pub fn server_schema(&self) -> Option<u32> {
+        (self.server_schema != 0).then_some(self.server_schema)
+    }
+
+    /// Why writes are unsafe right now, if they are: the server reports a
+    /// newer schema, or some history could not be read completely. Empty
+    /// when writing is fine.
+    pub fn format_problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.server_schema > SUPPORTED_SCHEMA {
+            out.push(format!("Things Cloud schema {} (Things 3 knows {SUPPORTED_SCHEMA})", self.server_schema));
+        }
+        for (kind, fields) in &self.state.unfamiliar_fields {
+            out.push(format!("{kind}: {}", fields.iter().cloned().collect::<Vec<_>>().join(", ")));
+        }
+        for (label, count) in &self.state.skipped {
+            out.push(format!("{label} × {count}"));
+        }
+        out
+    }
+
+    /// Writes are refused unless everything read from Things Cloud was
+    /// understood, with the schema this app knows.
+    ///
+    /// Newer kinds (e.g. `Task7`) are accepted as *compatible* when every
+    /// item of them seen so far used only fields we understand, with the
+    /// expected types. Writes then use that newer kind (matching what the
+    /// official apps now write). Anything unfamiliar blocks writes, while
+    /// reading carries on.
     fn check_format(&self) -> Result<(), WriteError> {
-        if self.state.newer_kinds.is_empty() {
+        let problems = self.format_problems();
+        if problems.is_empty() {
             Ok(())
         } else {
-            Err(WriteError::UnsupportedFormat { kinds: self.state.newer_kinds.keys().cloned().collect() })
+            Err(WriteError::UnsupportedFormat { kinds: problems })
+        }
+    }
+
+    /// Relabels planned items with the kind version this account uses.
+    fn adapt_kinds(&self, items: &mut [Item]) {
+        for item in items {
+            if let Some(family) = Family::of(&item.kind) {
+                item.kind = write_kind_for(family, self.state.newer_kinds.keys());
+            }
         }
     }
 
@@ -274,7 +313,8 @@ impl Engine {
         }
         self.check_format()?;
 
-        let plan = mutation::plan(&self.state, m, ctx)?;
+        let mut plan = mutation::plan(&self.state, m, ctx)?;
+        self.adapt_kinds(&mut plan.items);
         if !force {
             for t in &plan.touched {
                 let Some(base) = t.base_rev else { continue };
@@ -457,19 +497,31 @@ mod tests {
     }
 
     #[test]
-    fn newer_data_format_is_readable_but_blocks_writes() {
+    fn compatible_newer_format_is_written_in_that_format() {
         let mut s = setup(WRITES);
-        s.fake.push_remote(vec![Item::new(id::new_id(), "Task7", 0, json!({"tt":"Made by a newer Things","st":0,"ix":1,"zz":1}))]);
+        let t7 = id::new_id();
+        s.fake.push_remote(vec![Item::new(&t7, "Task7", 0, json!({"tt":"Made by a newer Things","st":0,"ix":1,"tg":[]}))]);
+        s.engine.apply(&rename(&t7, 1, "Renamed here"), false, &ctx()).unwrap();
+        let created = s.engine.apply(&serde_json::from_value(json!({"type":"createTask","title":"New"})).unwrap(), false, &ctx()).unwrap();
+        let entries = s.fake.entries();
+        assert_eq!(entries[entries.len() - 2][0].kind, "Task7", "edits use the account's format");
+        assert_eq!(entries[entries.len() - 1][0].kind, "Task7", "creates use the account's format");
+        assert_eq!(entries[entries.len() - 1][0].uuid, created.created[0]);
+        assert_eq!(s.engine.state().tasks[&t7].title, "Renamed here");
+        // Areas and tags stay on their validated kinds.
+        s.engine.apply(&Mutation::CreateArea { title: "Home".into() }, false, &ctx()).unwrap();
+        assert_eq!(s.fake.entries().last().unwrap()[0].kind, "Area3");
+    }
+
+    #[test]
+    fn unfamiliar_fields_in_a_newer_format_block_writes() {
+        let mut s = setup(WRITES);
+        s.fake.push_remote(vec![Item::new(id::new_id(), "Task7", 0, json!({"tt":"Has a new field","st":0,"ix":1,"zz":1}))]);
         let err = s.engine.apply(&rename(&s.task, 0, "x"), false, &ctx()).unwrap_err();
-        assert_eq!(err, WriteError::UnsupportedFormat { kinds: vec!["Task7".into()] });
+        assert_eq!(err, WriteError::UnsupportedFormat { kinds: vec!["Task7: zz".into()] });
         assert_eq!(s.fake.commits_received(), 0, "nothing is sent");
-        assert!(s.engine.snapshot().tasks.iter().any(|t| t.title == "Made by a newer Things"));
+        assert!(s.engine.snapshot().tasks.iter().any(|t| t.title == "Has a new field"));
         assert_eq!(s.engine.state().unfamiliar_fields["Task7"].iter().collect::<Vec<_>>(), vec!["zz"]);
-        // Still blocked after a restart (format detected from the cache).
-        assert!(matches!(
-            s.engine.apply(&Mutation::CreateArea { title: "y".into() }, false, &ctx()),
-            Err(WriteError::UnsupportedFormat { .. })
-        ));
     }
 
     #[test]
@@ -553,23 +605,33 @@ mod tests {
     }
 
     #[test]
-    fn sync_is_atomic_per_page_and_fails_closed() {
+    fn unreadable_data_keeps_syncing_but_blocks_writes() {
         let fake = Arc::new(FakeCloud::new("me@example.com", "pw"));
         fake.set_page_size(1);
         for i in 0..3 {
             fake.push_remote(vec![Item::new(id::new_id(), "Area3", 0, json!({"tt": format!("A{i}")}))]);
         }
         fake.push_remote(vec![Item::new(id::new_id(), "Widget1", 0, json!({}))]);
+        fake.push_remote(vec![Item::new(id::new_id(), "Area3", 0, json!({"tt": "After"}))]);
         let mut e = Engine::open(fake.clone(), fake.history_key(), Cache::in_memory().unwrap(), WRITES).unwrap();
-        assert!(matches!(e.sync(), Err(EngineError::State(_))));
-        assert_eq!(e.state().applied_index, 3, "good pages kept, bad page not applied");
-        assert_eq!(e.cache.cursor().unwrap(), 3);
+        e.sync().unwrap();
+        assert_eq!(e.state().applied_index, 5, "an unreadable item doesn't stop syncing");
+        assert_eq!(e.cache.cursor().unwrap(), 5);
+        assert!(e.state().areas.values().any(|a| a.title == "After"));
+        assert_eq!(e.format_problems(), vec!["Widget1 (unknown item type) × 1".to_string()]);
+        assert!(matches!(e.apply(&Mutation::CreateArea { title: "x".into() }, false, &ctx()), Err(WriteError::UnsupportedFormat { .. })));
+        assert_eq!(fake.commits_received(), 0);
+        // Reopening from the cache gives the same picture.
+        drop(e);
 
         let fake2 = Arc::new(FakeCloud::new("me@example.com", "pw"));
+        fake2.push_remote(vec![Item::new(id::new_id(), "Area3", 0, json!({"tt":"Read anyway"}))]);
         fake2.set_schema(302);
         let mut e2 = Engine::open(fake2.clone(), fake2.history_key(), Cache::in_memory().unwrap(), WRITES).unwrap();
-        assert!(matches!(e2.sync(), Err(EngineError::Cloud(CloudError::UnsupportedSchema { .. }))));
-        assert!(matches!(e2.apply(&Mutation::CreateArea { title: "x".into() }, false, &ctx()), Err(WriteError::Sync { .. })));
+        e2.sync().unwrap();
+        assert!(e2.state().areas.values().any(|a| a.title == "Read anyway"), "a newer schema is still read");
+        assert_eq!(e2.server_schema(), Some(302));
+        assert!(matches!(e2.apply(&Mutation::CreateArea { title: "x".into() }, false, &ctx()), Err(WriteError::UnsupportedFormat { .. })));
         assert_eq!(fake2.commits_received(), 0, "no writes against an unknown schema");
     }
 

@@ -158,9 +158,6 @@ impl Transport for HttpTransport {
             latest_server_index: as_index(&v, "latest-server-index")?,
             schema: v.get("latest-schema-version").and_then(Value::as_u64).unwrap_or(0) as u32,
         };
-        if head.schema > SUPPORTED_SCHEMA {
-            return Err(CloudError::UnsupportedSchema { found: head.schema, supported: SUPPORTED_SCHEMA });
-        }
         Ok(head)
     }
 
@@ -279,7 +276,8 @@ mod tests {
             .match_query(Matcher::UrlEncoded("start-index".into(), "7".into()))
             .with_body(r#"{"items":[],"current-item-index":7,"schema":302}"#)
             .create();
-        assert!(matches!(transport(&server).items(&key(), 7), Err(CloudError::UnsupportedSchema { found: 302, .. })));
+        // A newer schema is still read; the engine blocks writes instead.
+        assert_eq!(transport(&server).items(&key(), 7).unwrap().schema, 302);
     }
 
     #[test]

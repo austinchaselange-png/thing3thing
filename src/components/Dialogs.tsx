@@ -87,7 +87,7 @@ function AccountTab() {
     <div className="settings-section">
       {app.account.mode === "demo" && <div className="callout">Your to-dos are stored only on this PC. Nothing is sent anywhere.</div>}
       <h3>Connect Things Cloud</h3>
-      <p className="muted">Use the email and password of the Things Cloud account your iPhone syncs with. Tings 3 starts in <strong>read-only</strong> mode; you can enable writing later.</p>
+      <p className="muted">Use the email and password of the Things Cloud account your iPhone syncs with. Things 3 starts in <strong>read-only</strong> mode; you can enable writing later.</p>
       <form
         className="form"
         onSubmit={(e) => {
@@ -108,7 +108,7 @@ function AccountTab() {
         </button>
       </form>
       <p className="fine">
-        Things Cloud has no official API. Tings 3 uses a reverse-engineered protocol that may change or break. See Settings → About.
+        Things Cloud has no official API. Things 3 uses a reverse-engineered protocol that may change or break. See Settings → About.
       </p>
       {app.account.mode !== "demo" && (
         <button className="btn" onClick={() => void run(() => backend.useDemo())}>
@@ -144,24 +144,33 @@ function SyncTab() {
       <button className="btn" onClick={() => void run(() => backend.syncNow())} disabled={account.mode === "signedOut"}>
         Sync now
       </button>
-      {app.format.newerKinds.length > 0 && (
+      <button className="btn" onClick={() => void copyDiagnostics()}>
+        Copy diagnostics
+      </button>
+      {(app.format.newerKinds.length > 0 || app.format.problems.length > 0) && (
         <>
           <h3>Data format</h3>
           <div className="callout warn-callout">
-            <p>
-              Your account contains Things data in a newer format than the one Tings 3 has been validated against:{" "}
-              <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Tings 3 reads it as well as it can, but{" "}
-              <strong>changes are turned off</strong> for this account, even if writing is allowed below. Writing the older format next to the new one could make
-              Things on your iPhone misbehave.
-            </p>
-            {app.format.newerKinds.some((k) => k.unfamiliarFields.length) && (
-              <p className="fine">
-                Fields not yet understood (names only):{" "}
-                {app.format.newerKinds
-                  .filter((k) => k.unfamiliarFields.length)
-                  .map((k) => `${k.kind}: ${k.unfamiliarFields.join(", ")}`)
-                  .join(" · ")}
+            {app.format.writesSupported ? (
+              <p>
+                Your Things apps now save to-dos in a newer format: <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Every
+                item seen so far uses only fields Things 3 understands, so changes are saved in that same format.{" "}
+                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If anything unfamiliar shows up, Things 3
+                turns changes off again automatically.
               </p>
+            ) : (
+              <p>
+                Things Cloud sent some data Things 3 doesn't fully understand yet. <strong>Syncing from your iPhone keeps working</strong>; Things 3 reads
+                everything it can and skips the rest. To protect your account, <strong>changes are turned off</strong> until this is supported, even if writing is
+                allowed below.
+              </p>
+            )}
+            {app.format.problems.length > 0 && (
+              <ul className="fine problem-list">
+                {app.format.problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
             )}
           </div>
         </>
@@ -262,10 +271,10 @@ function GeneralTab() {
       </label>
       <Toggle label="Launch at Windows sign-in" checked={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
       <Toggle label="Keep running in the system tray when closed" checked={s.closeToTray} onChange={(v) => update({ closeToTray: v })} />
-      <Toggle label="Reminder notifications" hint="Shown by Windows at the reminder time while Tings 3 is running." checked={s.notifications} onChange={(v) => update({ notifications: v })} />
+      <Toggle label="Reminder notifications" hint="Shown by Windows at the reminder time while Things 3 is running." checked={s.notifications} onChange={(v) => update({ notifications: v })} />
       <Toggle
         label="Translucent sidebar (Mica)"
-        hint={app.platform.micaAvailable ? "Windows 11 only. Takes effect after restarting Tings 3." : "Requires Windows 11."}
+        hint={app.platform.micaAvailable ? "Windows 11 only. Takes effect after restarting Things 3." : "Requires Windows 11."}
         checked={s.mica}
         disabled={!app.platform.micaAvailable}
         onChange={(v) => update({ mica: v })}
@@ -309,15 +318,15 @@ function AboutTab() {
   return (
     <div className="settings-section about">
       <p>
-        <strong>Tings 3</strong> {app.platform.version} — a Things-style task manager for Windows. Not affiliated with Cultured Code.
+        <strong>Things 3</strong> {app.platform.version} — an unofficial, personal Windows client for Things. Not affiliated with Cultured Code.
       </p>
       <h3>Risks of the unofficial protocol</h3>
       <ul>
         <li>Things Cloud has no public API. The protocol was reverse-engineered by the open-source things-cloud-sdk and things-cloud-mcp projects and can change without notice.</li>
-        <li>A malformed write can make Things on your iPhone crash while syncing, and such a write cannot be undone from the server. Tings 3 builds every write with validated, tested payloads, but test on a disposable account first.</li>
-        <li>If a write's outcome is unknown (connection dropped), Tings 3 never resends it automatically. It checks Things Cloud and asks you.</li>
-        <li>Cultured Code may rate-limit or block unofficial clients. Tings 3 limits itself to one request per second.</li>
-        <li>New occurrences of repeating to-dos are created by the official Things apps, not by Tings 3.</li>
+        <li>A malformed write can make Things on your iPhone crash while syncing, and such a write cannot be undone from the server. Things 3 builds every write with validated, tested payloads, but test on a disposable account first.</li>
+        <li>If a write's outcome is unknown (connection dropped), Things 3 never resends it automatically. It checks Things Cloud and asks you.</li>
+        <li>Cultured Code may rate-limit or block unofficial clients. Things 3 limits itself to one request per second.</li>
+        <li>New occurrences of repeating to-dos are created by the official Things apps, not by Things 3.</li>
       </ul>
     </div>
   );
@@ -359,7 +368,7 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
   };
   return (
     <Modal
-      title={destructive ? "Allow permanent deletions?" : "Allow Tings 3 to change your Things data?"}
+      title={destructive ? "Allow permanent deletions?" : "Allow Things 3 to change your Things data?"}
       onClose={close}
       footer={
         <>
@@ -385,7 +394,7 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
             <li>Changes you make here will be sent to Things Cloud and appear on your iPhone.</li>
             <li>This uses an unofficial, reverse-engineered protocol. A bad write could make Things on iPhone crash while syncing, and might not be reversible.</li>
             <li>We strongly recommend trying writes on a <strong>disposable Things Cloud account</strong> first.</li>
-            <li>If a change's outcome is uncertain, Tings 3 will never resend it automatically.</li>
+            <li>If a change's outcome is uncertain, Things 3 will never resend it automatically.</li>
           </ul>
         )}
       </div>
@@ -479,6 +488,71 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
   );
 }
 
+const SHORTCUTS: [string, [string, string][]][] = [
+  ["Create", [["New to-do", "Ctrl+N"], ["Quick Entry (from any app)", "Ctrl+Alt+Space"], ["Duplicate to-do", "Ctrl+D"]]],
+  ["Selected to-do", [["Edit / open", "Enter"], ["Complete", "Ctrl+K"], ["Context menu", "Shift+F10"], ["Move to Trash", "Delete"]]],
+  ["When", [["Today", "Ctrl+T"], ["This Evening", "Ctrl+E"], ["Anytime", "Ctrl+R"], ["Someday", "Ctrl+O"], ["Choose date…", "Ctrl+S"]]],
+  ["Organise", [["Move…", "Ctrl+Shift+M"], ["Tags…", "Ctrl+Shift+T"], ["Deadline…", "Ctrl+Shift+D"]]],
+  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
+];
+
+export function ShortcutsDialog() {
+  return (
+    <Modal title="Keyboard Shortcuts" onClose={close} width={560}>
+      <div className="shortcut-grid">
+        {SHORTCUTS.map(([group, rows]) => (
+          <section key={group}>
+            <h3>{group}</h3>
+            {rows.map(([label, keys]) => (
+              <div className="shortcut-row" key={label}>
+                <span>{label}</span>
+                <kbd className="keycap">{keys}</kbd>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+      <p className="fine">Right-click any to-do, project, area, tag or list for more actions.</p>
+    </Modal>
+  );
+}
+
+export function PromptDialog({ title, label, initial, confirmLabel, onSubmit }: { title: string; label: string; initial: string; confirmLabel: string; onSubmit: (v: string) => void }) {
+  const [value, setValue] = useState(initial);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+  const submit = () => {
+    if (!value.trim()) return;
+    close();
+    onSubmit(value.trim());
+  };
+  return (
+    <Modal
+      title={title}
+      onClose={close}
+      width={400}
+      footer={
+        <>
+          <button className="btn" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!value.trim()} onClick={submit}>
+            {confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <label className="form">
+        {label}
+        <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), submit())} aria-label={label} />
+      </label>
+    </Modal>
+  );
+}
+
 export function IssueDialog({ issue }: { issue: Issue }) {
   const backend = getBackend();
   const live = useStore((s) => s.app?.issues.find((i) => i.id === issue.id)) ?? issue;
@@ -517,7 +591,7 @@ export function IssueDialog({ issue }: { issue: Issue }) {
       ) : live.status === "missing" ? (
         <p>The connection failed while saving, and the change does not appear in Things Cloud. It was most likely not saved. Check your iPhone, then apply it again or dismiss it.</p>
       ) : (
-        <p>The connection failed while saving, so Tings 3 can't tell whether Things Cloud received it. To avoid creating duplicates, it won't resend automatically. Tings 3 will check again on the next sync.</p>
+        <p>The connection failed while saving, so Things 3 can't tell whether Things Cloud received it. To avoid creating duplicates, it won't resend automatically. Things 3 will check again on the next sync.</p>
       )}
       {live.detail && <p className="fine">Details: {live.detail}</p>}
       <p className="fine">Other changes are paused until this is resolved.</p>
@@ -659,14 +733,55 @@ export function IssueBanner() {
   );
 }
 
+/** Copies a support summary (no credentials, no to-do content) to the clipboard. */
+export async function copyDiagnostics() {
+  const app = useStore.getState().app;
+  if (!app) return;
+  const lines = [
+    `Things 3 ${app.platform.version} (${app.platform.os})`,
+    `Account: ${app.account.mode}`,
+    `Sync: ${app.sync.phase}${app.sync.lastSyncedAt ? `, last synced ${new Date(app.sync.lastSyncedAt).toISOString()}` : ", never synced"}`,
+    `Last error: ${app.sync.lastError ?? "none"}`,
+    `History index: ${app.snapshot.serverIndex}; server schema: ${app.format.serverSchema ?? "unknown"}`,
+    `Writes: allowed=${app.policy.writes}, possible=${app.canWrite}`,
+    `Newer kinds: ${app.format.newerKinds.map((k) => `${k.kind}×${k.count}`).join(", ") || "none"}`,
+    `Format problems: ${app.format.problems.join("; ") || "none"}`,
+    `Open issues: ${app.issues.map((i) => `${i.status}: ${i.detail ?? ""}`).join("; ") || "none"}`,
+  ];
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    useStore.getState().toast("Diagnostics copied. They contain no password or to-do text.", "success");
+  } catch {
+    useStore.getState().toast("Could not copy to the clipboard.", "error");
+  }
+}
+
+/** A sync failure is shown in the window, not only in Settings. */
+export function SyncErrorBanner() {
+  const app = useStore((s) => s.app);
+  const openDialog = useStore((s) => s.openDialog);
+  if (!app || app.account.mode === "signedOut" || app.sync.phase !== "error" || !app.sync.lastError) return null;
+  return (
+    <div className="readonly-banner error-banner" role="alert">
+      <WarningIcon size={12} /> <span className="banner-text">Sync stopped: {app.sync.lastError}</span>
+      <button className="link-btn" onClick={() => void getBackend().syncNow()}>
+        Try again
+      </button>
+      <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
+        Details…
+      </button>
+    </div>
+  );
+}
+
 export function ReadOnlyBanner() {
   const app = useStore((s) => s.app);
   const openDialog = useStore((s) => s.openDialog);
   if (!app || app.account.mode !== "cloud" || app.canWrite) return null;
-  if (app.format.newerKinds.length)
+  if (!app.format.writesSupported)
     return (
       <div className="readonly-banner">
-        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) that Tings 3 can't safely write yet.
+        <LockIcon size={12} /> Read-only — Things Cloud sent data Things 3 doesn't fully understand yet, so changes are off. Syncing still works.
         <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
           Details…
         </button>

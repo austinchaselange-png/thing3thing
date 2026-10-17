@@ -1,4 +1,4 @@
-//! Tings 3 desktop app: Tauri shell around the things-sync engine.
+//! Things 3 desktop app: Tauri shell around the things-sync engine.
 
 mod commands;
 mod core;
@@ -56,5 +56,5 @@ pub fn run() {
             commands::show_main_window,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Tings 3");
+        .expect("error while running Things 3");
 }

@@ -41,7 +41,7 @@ export class MockBackend implements Backend {
       settings: loadSettings(),
       platform: { os: "browser", micaAvailable: false, version: "dev" },
       canWrite: true,
-      format: { newerKinds: [] },
+      format: { newerKinds: [], problems: [], serverSchema: null, writesSupported: true },
     };
   }
 

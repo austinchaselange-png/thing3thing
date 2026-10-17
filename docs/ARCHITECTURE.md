@@ -1,6 +1,6 @@
-# Tings 3 architecture
+# Things 3 architecture
 
-Tings 3 is a Windows desktop task manager in the style of Things 3 that reads and
+Things 3 is a Windows desktop task manager in the style of Things 3 that reads and
 (optionally) writes your Things Cloud data, so it stays in sync with Things on
 iPhone. It is built with Tauri 2 (Rust) and React + TypeScript.
 
@@ -67,7 +67,7 @@ uncertain-write reconciliation, no automatic retry).
 
 ### crates/things-sync
 
-* **Cache** — SQLite in `%LOCALAPPDATA%\Tings 3\cache-<account-hash>.sqlite`:
+* **Cache** — SQLite in `%LOCALAPPDATA%\Things 3\cache-<account-hash>.sqlite`:
   `events(idx, uuid, kind, action, payload)`, `meta(cursor, schema)`,
   `journal(...)`. On launch the state is rebuilt from the local event log, so the
   app opens instantly and works offline; a sync then pulls only the delta.

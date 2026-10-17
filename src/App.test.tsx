@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
@@ -51,7 +51,7 @@ describe("App", () => {
     await act(() => useStore.getState().apply({ type: "createArea", title: "X" }));
     expect(await screen.findByText(/read-only/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Enable writes…" }));
-    const dialog = await screen.findByRole("dialog", { name: /Allow Tings 3 to change/ });
+    const dialog = await screen.findByRole("dialog", { name: /Allow Things 3 to change/ });
     const enable = within(dialog).getByRole("button", { name: "Enable writes" });
     expect(enable).toBeDisabled();
     await userEvent.click(within(dialog).getByRole("checkbox"));
@@ -87,14 +87,69 @@ describe("App", () => {
     await waitFor(() => expect(useStore.getState().view!.tasks.some((t) => t.title === "Buy stamps" && t.tagIds.includes("tagErrand") && t.startDate)).toBe(true));
   });
 
-  it("goes read-only with an explanation when the account uses a newer data format", async () => {
+  it("goes read-only with an explanation when Things Cloud sends data it doesn't understand", async () => {
     const b = backend as unknown as { emit(p: object): void };
-    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }] } });
+    b.emit({
+      account: { mode: "cloud", email: "me@example.com" },
+      canWrite: false,
+      format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }], problems: ["Task7: zz", "Things Cloud schema 302 (Things 3 knows 301)"], serverSchema: 302, writesSupported: false },
+    });
     render(<App />);
-    expect(await screen.findByText(/newer Things data format \(Task7\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/doesn't fully understand yet, so changes are off/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Complete “Call the dentist/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Details…" }));
-    expect(await screen.findByText(/Task7 \(12\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Task7: zz/)).toBeInTheDocument();
+    expect(await screen.findByText(/Syncing from your iPhone keeps working/)).toBeInTheDocument();
+    expect(screen.getByText("Task7: zz")).toBeInTheDocument();
+    expect(screen.getByText(/schema 302/)).toBeInTheDocument();
+  });
+
+  it("shows a sync failure in the window with a way to retry", async () => {
+    const b = backend as unknown as { emit(p: object): void };
+    b.emit({ account: { mode: "cloud", email: "me@example.com" }, sync: { phase: "error", lastSyncedAt: null, lastError: "Things Cloud is unreachable", nextAttemptAt: null } });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sync stopped: Things Cloud is unreachable");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("right-click menu moves a to-do to the Trash, with Undo", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    fireEvent.contextMenu(screen.getByText("Water the plants"));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Move to Trash/ }));
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Water the plants")).toBeInTheDocument();
+  });
+
+  it("menus work from the keyboard and disable writes when read-only", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Complete/ })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    await act(() => backend.setPolicy({ writes: false, destructive: false }));
+    fireEvent.contextMenu(screen.getByText("Call the dentist to reschedule"));
+    const ro = await screen.findByRole("menu");
+    expect(within(ro).getByRole("menuitem", { name: /Move to Trash/ })).toHaveAttribute("aria-disabled", "true");
+    expect(within(ro).getByRole("menuitem", { name: /Copy Title/ })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("button", { name: "New To-Do" })).toBeDisabled();
+  });
+
+  it("the blue button starts a new to-do and shows quick actions on the selected row", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    expect(screen.queryByRole("toolbar", { name: "Actions" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "New To-Do" }));
+    expect(await screen.findByRole("textbox", { name: "New to-do title" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    expect(screen.getByRole("button", { name: "When" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move to Trash" })).toBeInTheDocument();
   });
 });

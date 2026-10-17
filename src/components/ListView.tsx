@@ -6,6 +6,7 @@ import { parseQuickEntry } from "../lib/quickParse";
 import { useStore } from "../store";
 import type { Selection, Snapshot, Task } from "../types";
 import { AreaIcon, FlagIcon, LIST_META, MoonIcon, ProgressPie, TagIcon } from "./Icons";
+import { headingMenu, newItemsMenu } from "./menus";
 import { TaskRow, type RowContext } from "./TaskItem";
 
 export function selectionTitle(sel: Selection, view: Snapshot): string {
@@ -181,7 +182,10 @@ export function ListView() {
 
   // Global "new to-do" requests (Ctrl+N, toolbar, tray).
   useEffect(() => {
-    const onNew = () => setDraft(filtered.find((g) => g.key !== "done")?.key ?? "default");
+    const onNew = (e: Event) => {
+      const section = (e as CustomEvent<{ section?: string }>).detail?.section;
+      setDraft(section && filtered.some((g) => g.key === section) ? section : (filtered.find((g) => g.key !== "done")?.key ?? "default"));
+    };
     window.addEventListener("tings3:new-task", onNew);
     return () => window.removeEventListener("tings3:new-task", onNew);
   });
@@ -199,7 +203,16 @@ export function ListView() {
   const canAdd = !(selection.kind === "list" && (selection.id === "logbook" || selection.id === "trash"));
 
   return (
-    <section className="list-view" aria-label={selectionTitle(selection, view)}>
+    <section
+      className="list-view"
+      aria-label={selectionTitle(selection, view)}
+      onContextMenu={(e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest("[data-task-id], input, textarea, button, .group-title, .tag-filter")) return;
+        e.preventDefault();
+        useStore.getState().openMenu(e, newItemsMenu(selection));
+      }}
+    >
       {project ? (
         <ProjectHeader project={project} />
       ) : (
@@ -235,7 +248,15 @@ export function ListView() {
           return (
             <div key={g.key} className={`group${g.key === "evening" ? " evening" : ""}${g.subtitle ? " day" : ""}`}>
               {g.title && (
-                <div className="group-title">
+                <div
+                  className="group-title"
+                  onContextMenu={(e) => {
+                    const heading = selection.kind === "project" ? view.tasks.find((t) => t.id === g.key && t.type === "heading") : undefined;
+                    if (!heading) return;
+                    e.preventDefault();
+                    useStore.getState().openMenu(e, headingMenu(heading));
+                  }}
+                >
                   {g.key === "evening" && <MoonIcon size={14} style={{ color: "var(--c-evening)" }} />}
                   {g.subtitle ? (
                     <>
