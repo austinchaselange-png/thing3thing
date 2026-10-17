@@ -1442,6 +1442,28 @@ button.chip.active:hover {
   color: var(--accent);
 }
 
+.readonly-banner.error-banner {
+  color: var(--text);
+  background: color-mix(in srgb, var(--warn) 12%, var(--box));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.error-banner svg {
+  color: var(--warn);
+  flex: none;
+}
+
+.error-banner .banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.problem-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 .empty-state {
   text-align: center;
   color: var(--muted);

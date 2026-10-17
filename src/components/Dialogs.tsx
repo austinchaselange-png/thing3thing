@@ -144,7 +144,10 @@ function SyncTab() {
       <button className="btn" onClick={() => void run(() => backend.syncNow())} disabled={account.mode === "signedOut"}>
         Sync now
       </button>
-      {app.format.newerKinds.length > 0 && (
+      <button className="btn" onClick={() => void copyDiagnostics()}>
+        Copy diagnostics
+      </button>
+      {(app.format.newerKinds.length > 0 || app.format.problems.length > 0) && (
         <>
           <h3>Data format</h3>
           <div className="callout warn-callout">
@@ -152,24 +155,22 @@ function SyncTab() {
               <p>
                 Your Things apps now save to-dos in a newer format: <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Every
                 item seen so far uses only fields Things 3 understands, so changes are saved in that same format.{" "}
-                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If any unfamiliar field shows up, Things 3
+                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If anything unfamiliar shows up, Things 3
                 turns changes off again automatically.
               </p>
             ) : (
               <p>
-                Your account contains Things data in a newer format with fields Things 3 doesn't understand yet:{" "}
-                <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Things 3 reads it as well as it can, but{" "}
-                <strong>changes are turned off</strong> for this account, even if writing is allowed below.
+                Things Cloud sent some data Things 3 doesn't fully understand yet. <strong>Syncing from your iPhone keeps working</strong>; Things 3 reads
+                everything it can and skips the rest. To protect your account, <strong>changes are turned off</strong> until this is supported, even if writing is
+                allowed below.
               </p>
             )}
-            {app.format.newerKinds.some((k) => k.unfamiliarFields.length) && (
-              <p className="fine">
-                Fields not yet understood (names only):{" "}
-                {app.format.newerKinds
-                  .filter((k) => k.unfamiliarFields.length)
-                  .map((k) => `${k.kind}: ${k.unfamiliarFields.join(", ")}`)
-                  .join(" · ")}
-              </p>
+            {app.format.problems.length > 0 && (
+              <ul className="fine problem-list">
+                {app.format.problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
             )}
           </div>
         </>
@@ -732,6 +733,47 @@ export function IssueBanner() {
   );
 }
 
+/** Copies a support summary (no credentials, no to-do content) to the clipboard. */
+export async function copyDiagnostics() {
+  const app = useStore.getState().app;
+  if (!app) return;
+  const lines = [
+    `Things 3 ${app.platform.version} (${app.platform.os})`,
+    `Account: ${app.account.mode}`,
+    `Sync: ${app.sync.phase}${app.sync.lastSyncedAt ? `, last synced ${new Date(app.sync.lastSyncedAt).toISOString()}` : ", never synced"}`,
+    `Last error: ${app.sync.lastError ?? "none"}`,
+    `History index: ${app.snapshot.serverIndex}; server schema: ${app.format.serverSchema ?? "unknown"}`,
+    `Writes: allowed=${app.policy.writes}, possible=${app.canWrite}`,
+    `Newer kinds: ${app.format.newerKinds.map((k) => `${k.kind}×${k.count}`).join(", ") || "none"}`,
+    `Format problems: ${app.format.problems.join("; ") || "none"}`,
+    `Open issues: ${app.issues.map((i) => `${i.status}: ${i.detail ?? ""}`).join("; ") || "none"}`,
+  ];
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    useStore.getState().toast("Diagnostics copied. They contain no password or to-do text.", "success");
+  } catch {
+    useStore.getState().toast("Could not copy to the clipboard.", "error");
+  }
+}
+
+/** A sync failure is shown in the window, not only in Settings. */
+export function SyncErrorBanner() {
+  const app = useStore((s) => s.app);
+  const openDialog = useStore((s) => s.openDialog);
+  if (!app || app.account.mode === "signedOut" || app.sync.phase !== "error" || !app.sync.lastError) return null;
+  return (
+    <div className="readonly-banner error-banner" role="alert">
+      <WarningIcon size={12} /> <span className="banner-text">Sync stopped: {app.sync.lastError}</span>
+      <button className="link-btn" onClick={() => void getBackend().syncNow()}>
+        Try again
+      </button>
+      <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
+        Details…
+      </button>
+    </div>
+  );
+}
+
 export function ReadOnlyBanner() {
   const app = useStore((s) => s.app);
   const openDialog = useStore((s) => s.openDialog);
@@ -739,7 +781,7 @@ export function ReadOnlyBanner() {
   if (!app.format.writesSupported)
     return (
       <div className="readonly-banner">
-        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) with fields Things 3 doesn't understand yet.
+        <LockIcon size={12} /> Read-only — Things Cloud sent data Things 3 doesn't fully understand yet, so changes are off. Syncing still works.
         <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
           Details…
         </button>

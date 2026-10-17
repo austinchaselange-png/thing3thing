@@ -87,15 +87,28 @@ describe("App", () => {
     await waitFor(() => expect(useStore.getState().view!.tasks.some((t) => t.title === "Buy stamps" && t.tagIds.includes("tagErrand") && t.startDate)).toBe(true));
   });
 
-  it("goes read-only with an explanation when the account uses a newer data format", async () => {
+  it("goes read-only with an explanation when Things Cloud sends data it doesn't understand", async () => {
     const b = backend as unknown as { emit(p: object): void };
-    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }], writesSupported: false } });
+    b.emit({
+      account: { mode: "cloud", email: "me@example.com" },
+      canWrite: false,
+      format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }], problems: ["Task7: zz", "Things Cloud schema 302 (Things 3 knows 301)"], serverSchema: 302, writesSupported: false },
+    });
     render(<App />);
-    expect(await screen.findByText(/newer Things data format \(Task7\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/doesn't fully understand yet, so changes are off/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Complete “Call the dentist/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Details…" }));
-    expect(await screen.findByText(/Task7 \(12\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Task7: zz/)).toBeInTheDocument();
+    expect(await screen.findByText(/Syncing from your iPhone keeps working/)).toBeInTheDocument();
+    expect(screen.getByText("Task7: zz")).toBeInTheDocument();
+    expect(screen.getByText(/schema 302/)).toBeInTheDocument();
+  });
+
+  it("shows a sync failure in the window with a way to retry", async () => {
+    const b = backend as unknown as { emit(p: object): void };
+    b.emit({ account: { mode: "cloud", email: "me@example.com" }, sync: { phase: "error", lastSyncedAt: null, lastError: "Things Cloud is unreachable", nextAttemptAt: null } });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sync stopped: Things Cloud is unreachable");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("right-click menu moves a to-do to the Trash, with Undo", async () => {

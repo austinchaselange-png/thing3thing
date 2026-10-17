@@ -91,6 +91,11 @@ pub struct KindCount {
 #[serde(rename_all = "camelCase")]
 pub struct FormatDto {
     pub newer_kinds: Vec<KindCount>,
+    /// Why writes are turned off (newer server schema, unreadable items,
+    /// unexpected fields). Empty when everything was understood.
+    pub problems: Vec<String>,
+    /// Schema Things Cloud last reported.
+    pub server_schema: Option<u32>,
     /// True when every newer-format item uses only understood fields, so
     /// writes are allowed (in that newer format).
     pub writes_supported: bool,
@@ -198,7 +203,7 @@ impl Core {
 
     fn open_from_settings(&self) {
         let settings = self.settings();
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         let result = match (settings.mode, settings.email.as_deref()) {
             (AccountMode::Demo, _) => self.open_demo(&mut inner).map_err(|e| e.to_string()),
             (AccountMode::Cloud, Some(email)) => self.open_cloud(&mut inner, email),
@@ -244,6 +249,16 @@ impl Core {
         Ok(())
     }
 
+    /// Locks the engine, recovering if an earlier panic poisoned the lock, so
+    /// one bug can't leave the app permanently unable to sync or save.
+    fn lock_inner(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(|poisoned| {
+            log::error!("engine lock was poisoned by an earlier panic; recovering");
+            self.inner.clear_poison();
+            poisoned.into_inner()
+        })
+    }
+
     // ---------- Publishing ----------
 
     fn build_state(&self, inner: &Inner) -> AppStateDto {
@@ -267,10 +282,12 @@ impl Core {
                             unfamiliar_fields: st.unfamiliar_fields.get(kind).map(|f| f.iter().cloned().collect()).unwrap_or_default(),
                         })
                         .collect(),
-                    writes_supported: st.unfamiliar_fields.is_empty(),
+                    problems: e.format_problems(),
+                    server_schema: e.server_schema(),
+                    writes_supported: e.format_problems().is_empty(),
                 }
             })
-            .unwrap_or(FormatDto { newer_kinds: vec![], writes_supported: true });
+            .unwrap_or(FormatDto { newer_kinds: vec![], problems: vec![], server_schema: None, writes_supported: true });
         let mut sync = self.status.lock().unwrap().clone();
         let mode = if inner.engine.is_none() { AccountMode::SignedOut } else { settings.mode };
         if mode == AccountMode::SignedOut && sync.phase != Phase::Error {
@@ -310,7 +327,7 @@ impl Core {
         if let Some(s) = self.published.read().unwrap().clone() {
             return s;
         }
-        let inner = self.inner.lock().unwrap();
+        let inner = self.lock_inner();
         self.publish(&inner);
         self.published.read().unwrap().clone().expect("just published")
     }
@@ -349,7 +366,16 @@ impl Core {
             let woken = if first { true } else { self.wait(Duration::from_secs(15)) };
             first = false;
             if woken || Instant::now() >= next_sync {
-                let failures = self.sync_once();
+                // Keep the worker alive whatever happens, so syncing can resume.
+                let failures = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.sync_once())).unwrap_or_else(|_| {
+                    log::error!("sync worker recovered from a panic");
+                    self.set_status(|s| {
+                        s.phase = Phase::Error;
+                        s.last_error = Some("Things 3 hit an internal error while syncing. It will try again shortly.".into());
+                    });
+                    self.publish_status();
+                    1
+                });
                 next_sync = Instant::now() + self.interval(failures);
                 if failures > 0 {
                     let at = now_ms() + self.interval(failures).as_millis() as i64;
@@ -365,13 +391,37 @@ impl Core {
 
     /// Pulls remote changes once. Returns the number of consecutive failures.
     fn sync_once(&self) -> u32 {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         if inner.engine.is_none() || inner.halted {
             return 0;
         }
         self.set_status(|s| s.phase = Phase::Syncing);
         self.publish_status();
-        let result = inner.engine.as_mut().unwrap().sync();
+        // A bug while reading must not kill the worker (and with it all
+        // future syncs); report it instead.
+        let engine = inner.engine.as_mut().unwrap();
+        let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| engine.sync())) {
+            Ok(r) => r,
+            Err(panic) => {
+                let what = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown error".into());
+                log::error!("sync panicked: {what}");
+                inner.halted = true;
+                inner.failures += 1;
+                let msg = format!("Things 3 hit an internal error while syncing ({what}). Your data on Things Cloud was not changed.");
+                self.set_status(|s| {
+                    s.phase = Phase::Error;
+                    s.last_error = Some(msg.clone());
+                });
+                self.notify("Things 3 stopped syncing", &msg);
+                let failures = inner.failures;
+                self.publish(&inner);
+                return failures;
+            }
+        };
         match result {
             Ok(report) => {
                 inner.failures = 0;
@@ -434,10 +484,10 @@ impl Core {
             self.creds
                 .save(&email, &StoredCredentials { password: creds.password, history_key: account.history_key })
                 .map_err(|e| e.to_string())?;
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.lock_inner();
             self.open_cloud(&mut inner, &email)
         })();
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         match outcome {
             Ok(()) => self.wake(),
             Err(msg) => {
@@ -475,7 +525,7 @@ impl Core {
     // ---------- Commands ----------
 
     pub fn sync_now(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         inner.halted = false;
         inner.failures = 0;
         drop(inner);
@@ -483,7 +533,7 @@ impl Core {
     }
 
     pub fn apply(&self, m: Mutation, force: bool) -> Result<WriteReport, Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         let engine = inner.engine.as_mut().ok_or_else(|| plain_error("noAccount", "Connect an account first."))?;
         let result = engine.apply(&m, force, &ctx());
         if let Err(WriteError::Uncertain { .. }) = &result {
@@ -501,7 +551,7 @@ impl Core {
     }
 
     pub fn set_policy(&self, policy: WritePolicy) -> Result<(), Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         if self.settings().mode != AccountMode::Cloud {
             return Err(plain_error("invalid", "The write policy applies to a connected Things Cloud account."));
         }
@@ -513,7 +563,7 @@ impl Core {
     }
 
     pub fn dismiss_issue(&self, id: i64) -> Result<(), Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         let engine = inner.engine.as_mut().ok_or_else(|| plain_error("noAccount", "No account."))?;
         engine.dismiss_issue(id).map_err(|e| plain_error("storage", e.to_string()))?;
         self.publish(&inner);
@@ -521,7 +571,7 @@ impl Core {
     }
 
     pub fn reapply_issue(&self, id: i64) -> Result<WriteReport, Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         let engine = inner.engine.as_mut().ok_or_else(|| plain_error("noAccount", "No account."))?;
         if !engine.policy().writes {
             return Err(write_error(&WriteError::ReadOnly));
@@ -544,7 +594,7 @@ impl Core {
         self.creds
             .save(&email, &StoredCredentials { password, history_key: account.history_key })
             .map_err(|e| plain_error("storage", e.to_string()))?;
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         self.open_cloud(&mut inner, &email).map_err(|m| plain_error("storage", m))?;
         {
             let mut s = self.settings.lock().unwrap();
@@ -564,7 +614,7 @@ impl Core {
     }
 
     pub fn disconnect(&self, forget_cache: bool) -> Result<(), Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         let email = self.settings().email;
         inner.engine = None;
         inner.fake = None;
@@ -592,7 +642,7 @@ impl Core {
     }
 
     pub fn use_demo(&self) -> Result<(), Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_inner();
         self.open_demo(&mut inner).map_err(|e| plain_error("storage", e.to_string()))?;
         {
             let mut s = self.settings.lock().unwrap();
@@ -611,7 +661,7 @@ impl Core {
 
     /// Demo only: appends an edit as if it came from Things on iPhone.
     pub fn simulate_remote_edit(&self) -> Result<String, Value> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.lock_inner();
         let (Some(fake), Some(engine)) = (inner.fake.clone(), inner.engine.as_ref()) else {
             return Err(plain_error("invalid", "Only available with demo data."));
         };
@@ -642,7 +692,7 @@ impl Core {
         }
         *self.settings.lock().unwrap() = next.clone();
         self.save_settings(&next);
-        let inner = self.inner.lock().unwrap();
+        let inner = self.lock_inner();
         self.publish(&inner);
         Ok(())
     }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { duplicate, moveTo, schedule, toggleComplete, trash } from "./actions";
 import { getBackend } from "./backend";
 import { ContextMenu } from "./components/ContextMenu";
-import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, Toasts, WriteOptInDialog } from "./components/Dialogs";
+import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
 import { ChevronIcon, CloudIcon, PlusIcon, SearchIcon } from "./components/Icons";
 import { newItemsMenu, taskMenu } from "./components/menus";
 import { ListView, selectionTitle } from "./components/ListView";
@@ -149,6 +149,7 @@ export function App() {
           </button>
           <TrafficLights />
         </header>
+        <SyncErrorBanner />
         <IssueBanner />
         <ReadOnlyBanner />
         {app.account.mode === "signedOut" ? <SignedOut /> : <ListView />}

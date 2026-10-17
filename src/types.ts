@@ -199,7 +199,13 @@ export interface AppState {
   platform: { os: string; micaAvailable: boolean; version: string };
   /** Writes allowed now: policy permits them and no unvalidated data format is present. */
   canWrite: boolean;
-  format: { newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[]; writesSupported: boolean };
+  format: {
+    newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[];
+    /** Why writes are turned off (newer schema, unreadable items, unexpected fields). Names only. */
+    problems: string[];
+    serverSchema: number | null;
+    writesSupported: boolean;
+  };
 }
 
 export type ListId = "inbox" | "today" | "upcoming" | "anytime" | "someday" | "logbook" | "trash";
