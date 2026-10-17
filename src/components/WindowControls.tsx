@@ -12,15 +12,11 @@ async function act(action: Action) {
 }
 
 /** macOS-style traffic lights drawn by the app (the window has no native frame).
- * Shown in the top-right corner, where Windows users expect window controls. */
+ * Shown in the top-right corner in Windows order — minimize, maximize, close —
+ * so close sits at the far right where Windows users expect it. */
 export function TrafficLights() {
   return (
     <div className="traffic">
-      <button className="tl tl-close" aria-label="Close" onClick={() => void act("close")}>
-        <svg viewBox="0 0 8 8">
-          <path d="M2 2l4 4M6 2L2 6" />
-        </svg>
-      </button>
       <button className="tl tl-min" aria-label="Minimize" onClick={() => void act("minimize")}>
         <svg viewBox="0 0 8 8">
           <path d="M1.5 4h5" />
@@ -29,6 +25,11 @@ export function TrafficLights() {
       <button className="tl tl-max" aria-label="Maximize" onClick={() => void act("toggleMaximize")}>
         <svg viewBox="0 0 8 8">
           <path className="fill" d="M2 2h3.2L2 5.2z M6 6H2.8L6 2.8z" />
+        </svg>
+      </button>
+      <button className="tl tl-close" aria-label="Close" onClick={() => void act("close")}>
+        <svg viewBox="0 0 8 8">
+          <path d="M2 2l4 4M6 2L2 6" />
         </svg>
       </button>
     </div>
