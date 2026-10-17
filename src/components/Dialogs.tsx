@@ -87,7 +87,7 @@ function AccountTab() {
     <div className="settings-section">
       {app.account.mode === "demo" && <div className="callout">Your to-dos are stored only on this PC. Nothing is sent anywhere.</div>}
       <h3>Connect Things Cloud</h3>
-      <p className="muted">Use the email and password of the Things Cloud account your iPhone syncs with. Tings 3 starts in <strong>read-only</strong> mode; you can enable writing later.</p>
+      <p className="muted">Use the email and password of the Things Cloud account your iPhone syncs with. Things 3 starts in <strong>read-only</strong> mode; you can enable writing later.</p>
       <form
         className="form"
         onSubmit={(e) => {
@@ -108,7 +108,7 @@ function AccountTab() {
         </button>
       </form>
       <p className="fine">
-        Things Cloud has no official API. Tings 3 uses a reverse-engineered protocol that may change or break. See Settings → About.
+        Things Cloud has no official API. Things 3 uses a reverse-engineered protocol that may change or break. See Settings → About.
       </p>
       {app.account.mode !== "demo" && (
         <button className="btn" onClick={() => void run(() => backend.useDemo())}>
@@ -151,14 +151,14 @@ function SyncTab() {
             {app.format.writesSupported ? (
               <p>
                 Your Things apps now save to-dos in a newer format: <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Every
-                item seen so far uses only fields Tings 3 understands, so changes are saved in that same format.{" "}
-                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If any unfamiliar field shows up, Tings 3
+                item seen so far uses only fields Things 3 understands, so changes are saved in that same format.{" "}
+                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If any unfamiliar field shows up, Things 3
                 turns changes off again automatically.
               </p>
             ) : (
               <p>
-                Your account contains Things data in a newer format with fields Tings 3 doesn't understand yet:{" "}
-                <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Tings 3 reads it as well as it can, but{" "}
+                Your account contains Things data in a newer format with fields Things 3 doesn't understand yet:{" "}
+                <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Things 3 reads it as well as it can, but{" "}
                 <strong>changes are turned off</strong> for this account, even if writing is allowed below.
               </p>
             )}
@@ -270,10 +270,10 @@ function GeneralTab() {
       </label>
       <Toggle label="Launch at Windows sign-in" checked={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
       <Toggle label="Keep running in the system tray when closed" checked={s.closeToTray} onChange={(v) => update({ closeToTray: v })} />
-      <Toggle label="Reminder notifications" hint="Shown by Windows at the reminder time while Tings 3 is running." checked={s.notifications} onChange={(v) => update({ notifications: v })} />
+      <Toggle label="Reminder notifications" hint="Shown by Windows at the reminder time while Things 3 is running." checked={s.notifications} onChange={(v) => update({ notifications: v })} />
       <Toggle
         label="Translucent sidebar (Mica)"
-        hint={app.platform.micaAvailable ? "Windows 11 only. Takes effect after restarting Tings 3." : "Requires Windows 11."}
+        hint={app.platform.micaAvailable ? "Windows 11 only. Takes effect after restarting Things 3." : "Requires Windows 11."}
         checked={s.mica}
         disabled={!app.platform.micaAvailable}
         onChange={(v) => update({ mica: v })}
@@ -317,15 +317,15 @@ function AboutTab() {
   return (
     <div className="settings-section about">
       <p>
-        <strong>Tings 3</strong> {app.platform.version} — a Things-style task manager for Windows. Not affiliated with Cultured Code.
+        <strong>Things 3</strong> {app.platform.version} — an unofficial, personal Windows client for Things. Not affiliated with Cultured Code.
       </p>
       <h3>Risks of the unofficial protocol</h3>
       <ul>
         <li>Things Cloud has no public API. The protocol was reverse-engineered by the open-source things-cloud-sdk and things-cloud-mcp projects and can change without notice.</li>
-        <li>A malformed write can make Things on your iPhone crash while syncing, and such a write cannot be undone from the server. Tings 3 builds every write with validated, tested payloads, but test on a disposable account first.</li>
-        <li>If a write's outcome is unknown (connection dropped), Tings 3 never resends it automatically. It checks Things Cloud and asks you.</li>
-        <li>Cultured Code may rate-limit or block unofficial clients. Tings 3 limits itself to one request per second.</li>
-        <li>New occurrences of repeating to-dos are created by the official Things apps, not by Tings 3.</li>
+        <li>A malformed write can make Things on your iPhone crash while syncing, and such a write cannot be undone from the server. Things 3 builds every write with validated, tested payloads, but test on a disposable account first.</li>
+        <li>If a write's outcome is unknown (connection dropped), Things 3 never resends it automatically. It checks Things Cloud and asks you.</li>
+        <li>Cultured Code may rate-limit or block unofficial clients. Things 3 limits itself to one request per second.</li>
+        <li>New occurrences of repeating to-dos are created by the official Things apps, not by Things 3.</li>
       </ul>
     </div>
   );
@@ -367,7 +367,7 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
   };
   return (
     <Modal
-      title={destructive ? "Allow permanent deletions?" : "Allow Tings 3 to change your Things data?"}
+      title={destructive ? "Allow permanent deletions?" : "Allow Things 3 to change your Things data?"}
       onClose={close}
       footer={
         <>
@@ -393,7 +393,7 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
             <li>Changes you make here will be sent to Things Cloud and appear on your iPhone.</li>
             <li>This uses an unofficial, reverse-engineered protocol. A bad write could make Things on iPhone crash while syncing, and might not be reversible.</li>
             <li>We strongly recommend trying writes on a <strong>disposable Things Cloud account</strong> first.</li>
-            <li>If a change's outcome is uncertain, Tings 3 will never resend it automatically.</li>
+            <li>If a change's outcome is uncertain, Things 3 will never resend it automatically.</li>
           </ul>
         )}
       </div>
@@ -590,7 +590,7 @@ export function IssueDialog({ issue }: { issue: Issue }) {
       ) : live.status === "missing" ? (
         <p>The connection failed while saving, and the change does not appear in Things Cloud. It was most likely not saved. Check your iPhone, then apply it again or dismiss it.</p>
       ) : (
-        <p>The connection failed while saving, so Tings 3 can't tell whether Things Cloud received it. To avoid creating duplicates, it won't resend automatically. Tings 3 will check again on the next sync.</p>
+        <p>The connection failed while saving, so Things 3 can't tell whether Things Cloud received it. To avoid creating duplicates, it won't resend automatically. Things 3 will check again on the next sync.</p>
       )}
       {live.detail && <p className="fine">Details: {live.detail}</p>}
       <p className="fine">Other changes are paused until this is resolved.</p>
@@ -739,7 +739,7 @@ export function ReadOnlyBanner() {
   if (!app.format.writesSupported)
     return (
       <div className="readonly-banner">
-        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) with fields Tings 3 doesn't understand yet.
+        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) with fields Things 3 doesn't understand yet.
         <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
           Details…
         </button>

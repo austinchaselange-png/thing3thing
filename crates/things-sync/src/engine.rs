@@ -57,7 +57,7 @@ pub enum WriteError {
     DestructiveDisabled,
     #[error("An earlier change has an unknown outcome. Resolve it before making more changes.")]
     Blocked { journal_id: i64 },
-    #[error("This account uses a newer Things data format ({}) with fields Tings 3 doesn't understand yet, so changes are turned off to protect your account.", kinds.join(", "))]
+    #[error("This account uses a newer Things data format ({}) with fields Things 3 doesn't understand yet, so changes are turned off to protect your account.", kinds.join(", "))]
     UnsupportedFormat { kinds: Vec<String> },
     #[error("This was changed on another device ({}).", fields.join(", "))]
     Conflict { entity_id: String, fields: Vec<String> },

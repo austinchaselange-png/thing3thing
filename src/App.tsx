@@ -113,7 +113,7 @@ export function App() {
         <div className="splash-top" data-tauri-drag-region>
           <TrafficLights />
         </div>
-        <h1>Tings 3 couldn't start</h1>
+        <h1>Things 3 couldn't start</h1>
         <p className="error-text">{loadError}</p>
         <button className="btn primary" onClick={() => void useStore.getState().init()}>
           Try again
@@ -234,7 +234,7 @@ function SignedOut() {
   return (
     <div className="welcome">
       <img className="welcome-icon" src="/app-icon.png" alt="" />
-      <h1>Welcome to Tings 3</h1>
+      <h1>Welcome to Things 3</h1>
       <p className="lead">A calm, Things-style task manager for Windows. Keep your to-dos on this PC, or sync them with Things on your iPhone.</p>
       <div className="card choice-list">
         <button className="choice" onClick={() => openDialog({ kind: "settings", tab: "account" })}>

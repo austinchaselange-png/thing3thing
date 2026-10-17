@@ -43,7 +43,7 @@ impl Family {
 }
 
 /// Newest version of each kind that is known to be written by the official
-/// apps and that Tings 3 writes itself.
+/// apps and that Things 3 writes itself.
 const NEWEST_KNOWN: [(&str, Family, u32); 5] = [
     ("Task", Family::Task, 6),
     ("ChecklistItem", Family::ChecklistItem, 3),

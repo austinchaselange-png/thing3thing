@@ -207,7 +207,7 @@ export const useStore = create<Store>((set, get) => ({
       return null;
     }
     if (!app.policy.writes) {
-      get().toast("Tings 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
+      get().toast("Things 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
       return null;
     }
     const pending: Pending = { id: ++seq, mutation };
@@ -226,7 +226,7 @@ export const useStore = create<Store>((set, get) => ({
     try {
       const report = await getBackend().apply(mutation, { force: opts.force });
       done();
-      if (report.reconciled) get().toast("The connection dropped, but Tings 3 confirmed the change was saved.", "success");
+      if (report.reconciled) get().toast("The connection dropped, but Things 3 confirmed the change was saved.", "success");
       return report;
     } catch (e) {
       done();

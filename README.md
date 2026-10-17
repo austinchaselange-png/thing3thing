@@ -1,10 +1,10 @@
-# Tings 3
+# Things 3
 
-A Windows task manager in the spirit of Things 3, built with Tauri 2, React and
-TypeScript. Tings 3 reads — and, after you opt in, writes — your **Things Cloud**
+An unofficial, personal Windows client for Things 3, built with Tauri 2, React and
+TypeScript. Things 3 reads — and, after you opt in, writes — your **Things Cloud**
 data, so it can stay in sync with Things on your iPhone without a Mac.
 
-> **Unofficial.** Things Cloud has no public API. Tings 3 speaks a
+> **Unofficial.** Things Cloud has no public API. Things 3 speaks a
 > reverse-engineered protocol (ported from
 > [things-cloud-mcp](https://github.com/wbopan/things-cloud-mcp) /
 > things-cloud-sdk). It starts read-only, and end-to-end sync with a real
@@ -51,11 +51,11 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 
 ## Install
 
-Download the latest `Tings 3_*_x64-setup.exe` (or `.msi`) from the
+Download the latest `Things 3_*_x64-setup.exe` (or `.msi`) from the
 **Windows build** workflow's artifacts on GitHub Actions. The installers are
 unsigned, so SmartScreen will ask you to confirm.
 
-On first launch Tings 3 starts with an empty list stored only on your PC.
+On first launch Things 3 starts with an empty list stored only on your PC.
 Connect your account in **Settings → Account**.
 
 ## Keyboard shortcuts

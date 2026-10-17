@@ -86,7 +86,7 @@ pub struct KindCount {
     pub unfamiliar_fields: Vec<String>,
 }
 
-/// Things data formats this account uses that Tings 3 only reads best-effort.
+/// Things data formats this account uses that Things 3 only reads best-effort.
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatDto {
@@ -382,7 +382,7 @@ impl Core {
                     s.next_attempt_at = None;
                 });
                 if !report.missing.is_empty() {
-                    self.notify("A change may not have been saved", "Open Tings 3 to review it.");
+                    self.notify("A change may not have been saved", "Open Things 3 to review it.");
                 }
             }
             Err(EngineError::Cloud(CloudError::Http { status: 401 | 403 | 404, .. }))
@@ -416,7 +416,7 @@ impl Core {
                     s.last_error = Some(msg.clone());
                 });
                 if halt {
-                    self.notify("Tings 3 stopped syncing", &msg);
+                    self.notify("Things 3 stopped syncing", &msg);
                 }
             }
         }
@@ -447,7 +447,7 @@ impl Core {
                     s.phase = Phase::Error;
                     s.last_error = Some(msg.clone());
                 });
-                self.notify("Tings 3 needs you to sign in again", "Open Settings → Account to reconnect.");
+                self.notify("Things 3 needs you to sign in again", "Open Settings → Account to reconnect.");
             }
         }
         self.publish(&inner);
@@ -487,7 +487,7 @@ impl Core {
         let engine = inner.engine.as_mut().ok_or_else(|| plain_error("noAccount", "Connect an account first."))?;
         let result = engine.apply(&m, force, &ctx());
         if let Err(WriteError::Uncertain { .. }) = &result {
-            self.notify("A change may not have been saved", "Tings 3 will not resend it automatically. Open Tings 3 to review.");
+            self.notify("A change may not have been saved", "Things 3 will not resend it automatically. Open Things 3 to review.");
         }
         if result.is_ok() {
             self.set_status(|s| {

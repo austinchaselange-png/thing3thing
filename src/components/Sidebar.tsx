@@ -173,7 +173,7 @@ export function Sidebar() {
       <div className="side-top" data-tauri-drag-region>
         <img className="brand-icon" src="/app-icon.png" alt="" data-tauri-drag-region />
         <span className="brand-name" data-tauri-drag-region>
-          Tings 3
+          Things 3
         </span>
       </div>
       <div className="sidebar-scroll">

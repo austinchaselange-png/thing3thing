@@ -51,7 +51,7 @@ describe("App", () => {
     await act(() => useStore.getState().apply({ type: "createArea", title: "X" }));
     expect(await screen.findByText(/read-only/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Enable writes…" }));
-    const dialog = await screen.findByRole("dialog", { name: /Allow Tings 3 to change/ });
+    const dialog = await screen.findByRole("dialog", { name: /Allow Things 3 to change/ });
     const enable = within(dialog).getByRole("button", { name: "Enable writes" });
     expect(enable).toBeDisabled();
     await userEvent.click(within(dialog).getByRole("checkbox"));
