@@ -71,6 +71,26 @@ pub struct AppStateDto {
     pub recent_writes: Vec<JournalEntry>,
     pub settings: Settings,
     pub platform: PlatformDto,
+    /// Writes allowed right now: the policy permits them and the account has
+    /// no data in a newer, unvalidated format.
+    pub can_write: bool,
+    pub format: FormatDto,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCount {
+    pub kind: String,
+    pub count: u64,
+    /// Field names that were ignored when reading this kind (never values).
+    pub unfamiliar_fields: Vec<String>,
+}
+
+/// Things data formats this account uses that Tings 3 only reads best-effort.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatDto {
+    pub newer_kinds: Vec<KindCount>,
 }
 
 struct Inner {
@@ -229,6 +249,24 @@ impl Core {
             Some(e) => (e.snapshot(), e.policy(), e.issues().unwrap_or_default(), e.recent_writes(15).unwrap_or_default()),
             None => (Snapshot::default(), WritePolicy::default(), vec![], vec![]),
         };
+        let format = inner
+            .engine
+            .as_ref()
+            .map(|e| {
+                let st = e.state();
+                FormatDto {
+                    newer_kinds: st
+                        .newer_kinds
+                        .iter()
+                        .map(|(kind, count)| KindCount {
+                            kind: kind.clone(),
+                            count: *count,
+                            unfamiliar_fields: st.unfamiliar_fields.get(kind).map(|f| f.iter().cloned().collect()).unwrap_or_default(),
+                        })
+                        .collect(),
+                }
+            })
+            .unwrap_or_default();
         let mut sync = self.status.lock().unwrap().clone();
         let mode = if inner.engine.is_none() { AccountMode::SignedOut } else { settings.mode };
         if mode == AccountMode::SignedOut && sync.phase != Phase::Error {
@@ -243,6 +281,8 @@ impl Core {
             recent_writes: recent,
             settings,
             platform: PlatformDto { os: std::env::consts::OS, mica_available: mica_available(), version: env!("CARGO_PKG_VERSION") },
+            can_write: policy.writes && format.newer_kinds.is_empty(),
+            format,
         }
     }
 

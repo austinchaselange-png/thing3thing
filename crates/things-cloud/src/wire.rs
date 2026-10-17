@@ -37,9 +37,37 @@ impl Family {
             "Tag4" | "Tag3" | "Tag" => Family::Tag,
             "Tombstone2" | "Tombstone" => Family::Tombstone,
             k if is_settings(k) => Family::Settings,
-            _ => return None,
+            k => return newer_version(k).map(|(family, _)| family),
         })
     }
+}
+
+/// Newest version of each kind that is known to be written by the official
+/// apps and that Tings 3 writes itself.
+const NEWEST_KNOWN: [(&str, Family, u32); 5] = [
+    ("Task", Family::Task, 6),
+    ("ChecklistItem", Family::ChecklistItem, 3),
+    ("Area", Family::Area, 3),
+    ("Tag", Family::Tag, 4),
+    ("Tombstone", Family::Tombstone, 2),
+];
+
+/// A newer, not yet validated version of a known kind (e.g. `Task7`).
+/// Such items are read best-effort, and writes are blocked while they exist.
+fn newer_version(kind: &str) -> Option<(Family, u32)> {
+    NEWEST_KNOWN.iter().find_map(|(prefix, family, newest)| {
+        let digits = kind.strip_prefix(prefix)?;
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let v: u32 = digits.parse().ok()?;
+        (v > *newest).then_some((*family, v))
+    })
+}
+
+/// True for kinds newer than the ones the reference implementation validated.
+pub fn is_unvalidated_kind(kind: &str) -> bool {
+    newer_version(kind).is_some()
 }
 
 /// Kinds from before the Base58 identifier migration; their ids and
@@ -110,7 +138,13 @@ mod tests {
         assert_eq!(Family::of("Tag3"), Some(Family::Tag));
         assert_eq!(Family::of("Settings5"), Some(Family::Settings));
         assert_eq!(Family::of("Settings"), None);
-        assert_eq!(Family::of("Task7"), None, "unknown future kinds fail closed");
+        assert_eq!(Family::of("Task7"), Some(Family::Task), "newer versions are read best-effort");
+        assert!(is_unvalidated_kind("Task7"));
+        assert!(is_unvalidated_kind("ChecklistItem4"));
+        assert!(!is_unvalidated_kind("Task6"));
+        assert!(!is_unvalidated_kind("Task"));
+        assert_eq!(Family::of("Taskforce"), None, "unrelated kinds still fail closed");
+        assert_eq!(Family::of("Widget1"), None);
         assert!(is_legacy_kind("Task4"));
         assert!(!is_legacy_kind("Task6"));
     }

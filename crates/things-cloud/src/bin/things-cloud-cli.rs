@@ -94,6 +94,18 @@ fn run(cmd: &str, email: &str, password: &Secret, titles: bool) -> Result<(), St
     println!("tags:          {}", state.tags.len());
     println!("checklist:     {}", state.checklist.len());
     println!("repeating:     {}", state.tasks.values().filter(|t| t.is_recurring_template()).count());
+    if state.newer_kinds.is_empty() {
+        println!("data format:   validated kinds only (writes can be enabled)");
+    } else {
+        for (kind, count) in &state.newer_kinds {
+            let fields: Vec<_> = state.unfamiliar_fields.get(kind).map(|f| f.iter().cloned().collect()).unwrap_or_default();
+            println!(
+                "newer format:  {kind} ×{count}; unfamiliar fields: {}",
+                if fields.is_empty() { "none".into() } else { fields.join(", ") }
+            );
+        }
+        println!("               Tings 3 reads these best-effort and keeps writes disabled.");
+    }
     if titles {
         for t in open.iter().filter(|t| t.start != Start::Inbox && t.effective_start_date().is_some_and(|d| d <= today)) {
             println!("  [today] {}", t.title);

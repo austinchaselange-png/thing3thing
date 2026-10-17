@@ -140,6 +140,7 @@ export type WriteErrorCode =
   | "rejected"
   | "uncertain"
   | "storage"
+  | "unsupportedFormat"
   | "noAccount";
 
 export interface WriteError {
@@ -196,6 +197,9 @@ export interface AppState {
   recentWrites: Issue[];
   settings: Settings;
   platform: { os: string; micaAvailable: boolean; version: string };
+  /** Writes allowed now: policy permits them and no unvalidated data format is present. */
+  canWrite: boolean;
+  format: { newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[] };
 }
 
 export type ListId = "inbox" | "today" | "upcoming" | "anytime" | "someday" | "logbook" | "trash";

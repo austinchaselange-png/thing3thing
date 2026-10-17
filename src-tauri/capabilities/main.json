@@ -9,7 +9,6 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-minimize",
     "core:window:allow-close",
-    "core:window:allow-is-maximized",
     "allow-get-state",
     "allow-sync-now",
     "allow-apply-mutation",

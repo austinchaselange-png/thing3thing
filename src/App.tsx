@@ -6,7 +6,7 @@ import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, HeadingIcon, Plus
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
-import { CaptionButtons } from "./components/WindowControls";
+import { TrafficLights } from "./components/WindowControls";
 import { useStore } from "./store";
 import type { ListId, Task } from "./types";
 
@@ -104,7 +104,7 @@ export function App() {
     return (
       <div className="splash">
         <div className="splash-top" data-tauri-drag-region>
-          <CaptionButtons />
+          <TrafficLights />
         </div>
         <h1>Tings 3 couldn't start</h1>
         <p className="error-text">{loadError}</p>
@@ -117,14 +117,14 @@ export function App() {
     return (
       <div className="splash" aria-busy="true">
         <div className="splash-top" data-tauri-drag-region>
-          <CaptionButtons />
+          <TrafficLights />
         </div>
         <div className="spinner" />
         <p>Loading your to-dos…</p>
       </div>
     );
 
-  const writable = app.policy.writes;
+  const writable = app.canWrite;
   const inProject = selection.kind === "project";
 
   return (
@@ -141,7 +141,7 @@ export function App() {
             <span className="grow">Quick Find</span>
             <kbd>Ctrl F</kbd>
           </button>
-          <CaptionButtons />
+          <TrafficLights />
         </header>
         <IssueBanner />
         <ReadOnlyBanner />

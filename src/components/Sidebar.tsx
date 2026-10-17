@@ -81,7 +81,7 @@ export function SyncIndicator() {
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
-  const { sync, account, policy, issues } = app;
+  const { sync, account, issues } = app;
   let text: string;
   let tone = "ok";
   if (account.mode === "signedOut") {
@@ -114,7 +114,7 @@ export function SyncIndicator() {
         <span className={`status-dot ${tone}${sync.phase === "syncing" || pending ? " busy" : ""}`} aria-hidden="true" />
       )}
       <span className="status-text">{local ? (sync.lastSyncedAt ? `Saved ${savedAt(sync.lastSyncedAt)} · on this PC` : "Stored on this PC") : text}</span>
-      {account.mode === "cloud" && !policy.writes && (
+      {account.mode === "cloud" && !app.canWrite && (
         <span className="ro-badge" title="Read-only: writes to Things Cloud are turned off">
           <LockIcon size={11} /> Read-only
         </span>

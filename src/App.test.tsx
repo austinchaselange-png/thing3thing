@@ -86,4 +86,15 @@ describe("App", () => {
     await userEvent.type(input, "Buy stamps #errand{Enter}");
     await waitFor(() => expect(useStore.getState().view!.tasks.some((t) => t.title === "Buy stamps" && t.tagIds.includes("tagErrand") && t.startDate)).toBe(true));
   });
+
+  it("goes read-only with an explanation when the account uses a newer data format", async () => {
+    const b = backend as unknown as { emit(p: object): void };
+    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }] } });
+    render(<App />);
+    expect(await screen.findByText(/newer Things data format \(Task7\)/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Complete “Call the dentist/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Details…" }));
+    expect(await screen.findByText(/Task7 \(12\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Task7: zz/)).toBeInTheDocument();
+  });
 });

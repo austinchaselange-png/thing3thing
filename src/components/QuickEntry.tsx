@@ -53,7 +53,7 @@ export function QuickEntryApp() {
 
   const tags = app?.snapshot.tags ?? [];
   const parsed = parseQuickEntry(text, tags, today);
-  const writable = !!app?.policy.writes && app.account.mode !== "signedOut";
+  const writable = !!app?.canWrite && app.account.mode !== "signedOut";
 
   const hide = () => {
     setText("");

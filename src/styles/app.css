@@ -236,51 +236,67 @@ kbd {
 }
 
 /* ---------------- window chrome ---------------- */
-/* Windows-style caption buttons, top-right, full title-bar height. */
-.caption {
+.traffic {
   display: flex;
-  align-self: stretch;
-  margin-left: 4px;
-  margin-right: -14px;
+  gap: 8px;
+  padding: 0 4px 0 10px;
 }
-.cap {
-  width: 46px;
-  height: 100%;
+.splash-top .traffic {
+  margin-left: auto;
+  padding: 0 18px;
+  height: var(--tb-h);
+  align-items: center;
+}
+.tl {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
   display: grid;
   place-items: center;
-  color: var(--text);
-  background: transparent;
-  transition: background 0.1s;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
 }
-.cap svg {
-  width: 10px;
-  height: 10px;
+.tl svg {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 1.4;
   fill: none;
-  stroke: currentColor;
-  stroke-width: 1;
-  shape-rendering: geometricPrecision;
+  stroke-linecap: round;
 }
-.cap:hover {
-  background: var(--hover);
+.tl svg .fill {
+  fill: rgba(0, 0, 0, 0.55);
+  stroke: none;
 }
-.cap:active {
-  background: var(--fill);
+.tl-close {
+  background: #ff5f57;
 }
-.cap-close:hover {
-  background: #c42b1c;
-  color: #fff;
+.tl-min {
+  background: #febc2e;
 }
-.cap-close:active {
-  background: #b22a1b;
-  color: rgba(255, 255, 255, 0.8);
+.tl-max {
+  background: #28c840;
 }
-body.inactive .cap {
-  color: var(--muted);
+.traffic:hover .tl svg {
+  opacity: 1;
 }
-.splash-top .caption {
-  margin: 0 0 0 auto;
-  height: 32px;
-  align-self: flex-start;
+.tl:active {
+  filter: brightness(0.82);
+}
+body.inactive .tl {
+  background: var(--fill-2);
+  box-shadow: none;
+}
+body.inactive .traffic:hover .tl-close {
+  background: #ff5f57;
+}
+body.inactive .traffic:hover .tl-min {
+  background: #febc2e;
+}
+body.inactive .traffic:hover .tl-max {
+  background: #28c840;
 }
 
 /* ---------------- layout ---------------- */
@@ -2534,4 +2550,16 @@ html.quick-entry #root {
   .search-field {
     width: 150px;
   }
+}
+
+.warn-callout {
+  border-left: 3px solid var(--warn);
+}
+
+.warn-callout p {
+  margin: 0 0 6px;
+}
+
+.warn-callout p:last-child {
+  margin-bottom: 0;
 }

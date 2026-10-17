@@ -145,6 +145,7 @@ conflict detection on top (see ARCHITECTURE.md).
 
 | Risk | Impact | Mitigation in Tings 3 |
 |---|---|---|
+| New item versions (seen: `Task7`, which the reference MCP rejects) | Sync stopped with "unsupported kind" | Newer versions of known kinds are read best-effort (unknown/mistyped fields skipped and listed by name); **writes are blocked** for any account containing them until the format is validated |
 | Protocol or schema changes | Reads/writes fail | Fail closed on schema > 301; app keeps working offline from cache in read-only mode |
 | Malformed write | Things on iPhone crashes; account history poisoned permanently | Writes off by default; all payloads built by one tested module that mirrors the MCP's field-for-field; Base58 id validation before commit; headings forced to `st=1`; positive `ix` |
 | Uncertain commit (timeout, dropped connection, 5xx) | Duplicate or lost write if retried | Never auto-retry; journal records the write before sending; reconcile by reading; block further writes until resolved |

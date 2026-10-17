@@ -73,7 +73,7 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
   const selected = useStore((s) => s.selectedId === task.id);
   const editing = useStore((s) => s.editingId === task.id);
   const view = useStore((s) => s.view);
-  const writable = useStore((s) => !!s.app?.policy.writes);
+  const writable = useStore((s) => !!s.app?.canWrite);
   const tags = view?.tags ?? EMPTY_TAGS;
   const checklist = view?.checklist;
   const parent = task.projectId ? view?.tasks.find((t) => t.id === task.projectId) : undefined;
@@ -160,7 +160,7 @@ type Picker = "when" | "tags" | "deadline" | "move" | null;
 export function TaskEditor({ task }: { task: Task }) {
   const apply = useStore((s) => s.apply);
   const tags = useStore((s) => s.view?.tags) ?? EMPTY_TAGS;
-  const writable = useStore((s) => !!s.app?.policy.writes);
+  const writable = useStore((s) => !!s.app?.canWrite);
   const allChecklist = useStore((s) => s.view?.checklist);
   const checklist = useMemo(() => (allChecklist ?? []).filter((c) => c.taskId === task.id), [allChecklist, task.id]);
   const [title, setTitle] = useState(task.title);

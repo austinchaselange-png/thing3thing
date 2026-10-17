@@ -56,6 +56,11 @@ The CLI prompts for the password (not echoed or stored) and prints counts
 for Inbox/Today/Upcoming/Someday/projects/areas/tags. Compare with your iPhone.
 Add `--titles` to list Today's titles.
 
+If it prints a `newer format:` line (for example `Task7`), your Things
+apps already use a data format nobody has validated for writing. Tings 3 will
+read it but keep changes turned off for that account. The field names it lists
+(never your data) are what's needed to validate the format.
+
 Then in the app: Settings → Account → Connect. Tings 3 connects **read-only**.
 Check that every list matches your iPhone, edit something on the iPhone, and
 confirm it appears in Tings 3 within ~30 s (or press F5).

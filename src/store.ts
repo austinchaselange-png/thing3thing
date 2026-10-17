@@ -131,12 +131,16 @@ export const useStore = create<Store>((set, get) => ({
 
   canWrite() {
     const app = get().app;
-    return !!app && app.account.mode !== "signedOut" && app.policy.writes;
+    return !!app && app.account.mode !== "signedOut" && app.canWrite;
   },
 
   async apply(mutation, opts = {}) {
     const { app } = get();
     if (!app) return null;
+    if (app.policy.writes && !app.canWrite) {
+      get().toast("This account uses a newer Things data format, so changes are turned off.", "info", { label: "Details…", run: () => get().openDialog({ kind: "settings", tab: "sync" }) });
+      return null;
+    }
     if (!app.policy.writes) {
       get().toast("Tings 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
       return null;

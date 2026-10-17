@@ -4,13 +4,13 @@
 //! `null` clears, absent keys are untouched. For conflict detection we record,
 //! per entity and per wire key, the server index of the last event that set it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::NaiveDate;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::wire::{action, is_legacy_kind, Family, Item};
+use crate::wire::{action, is_legacy_kind, is_unvalidated_kind, Family, Item};
 use crate::{dates, id, note};
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -161,6 +161,12 @@ pub struct State {
     pub deleted: HashMap<String, u64>,
     /// Number of history entries applied (equals the next start index).
     pub applied_index: u64,
+    /// Items of kinds newer than any validated version (e.g. `Task7`), by
+    /// kind. Read best-effort; writes must be blocked while this is non-empty.
+    pub newer_kinds: BTreeMap<String, u64>,
+    /// Field names in those items that were unknown or had an unexpected type
+    /// and were therefore ignored. Names only — never values.
+    pub unfamiliar_fields: BTreeMap<String, BTreeSet<String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -210,6 +216,28 @@ fn checklist_key_type(key: &str) -> Ty {
         "lt" => Ty::Bool,
         "ts" => Ty::StrArray,
         _ => Ty::Any,
+    }
+}
+
+/// Keys seen in validated payloads; anything else in a newer kind is reported.
+fn is_known_key(family: Family, key: &str) -> bool {
+    match family {
+        Family::Task => !matches!(task_key_type(key), Ty::Any) || matches!(key, "nt" | "rr" | "xx" | "rp"),
+        Family::Area => !matches!(area_key_type(key), Ty::Any) || matches!(key, "xx" | "vs"),
+        Family::Tag => !matches!(tag_key_type(key), Ty::Any) || key == "xx",
+        Family::ChecklistItem => !matches!(checklist_key_type(key), Ty::Any) || key == "xx",
+        Family::Tombstone => matches!(key, "dloid" | "dld"),
+        Family::Settings => true,
+    }
+}
+
+fn key_type_for(family: Family) -> fn(&str) -> Ty {
+    match family {
+        Family::Task => task_key_type,
+        Family::Area => area_key_type,
+        Family::Tag => tag_key_type,
+        Family::ChecklistItem => checklist_key_type,
+        Family::Tombstone | Family::Settings => |_| Ty::Any,
     }
 }
 
@@ -278,7 +306,14 @@ impl State {
         let family = Family::of(&item.kind).expect("validated");
         let legacy = is_legacy_kind(&item.kind);
         let uuid = if legacy { id::normalize(&item.uuid) } else { item.uuid.clone() };
-        let payload = item.payload_obj();
+        let filtered;
+        let payload = if is_unvalidated_kind(&item.kind) {
+            *self.newer_kinds.entry(item.kind.clone()).or_default() += 1;
+            filtered = self.filter_unfamiliar(family, &item.kind, item.payload_obj());
+            filtered.as_ref()
+        } else {
+            item.payload_obj()
+        };
 
         if item.action == action::DELETE && family != Family::Tombstone {
             self.remove(&uuid, index);
@@ -353,6 +388,21 @@ impl State {
                 self.deleted.remove(&uuid);
             }
         }
+    }
+
+    /// Keeps only fields we understand, with the types we expect; records the rest.
+    fn filter_unfamiliar(&mut self, family: Family, kind: &str, payload: Option<&Map<String, Value>>) -> Option<Map<String, Value>> {
+        let payload = payload?;
+        let key_type = key_type_for(family);
+        let mut kept = Map::new();
+        for (k, v) in payload {
+            if is_known_key(family, k) && type_ok(key_type(k), v) {
+                kept.insert(k.clone(), v.clone());
+            } else {
+                self.unfamiliar_fields.entry(kind.to_string()).or_default().insert(k.clone());
+            }
+        }
+        Some(kept)
     }
 
     fn remove(&mut self, uuid: &str, index: u64) {
@@ -467,6 +517,14 @@ fn validate_item(item: &Item) -> Result<(), StateError> {
         Value::Null if item.action == action::MODIFY => return Ok(()),
         _ => return Err(malformed("payload is not an object".into())),
     };
+    if is_unvalidated_kind(&item.kind) {
+        // Newer versions are read best-effort: unexpected fields are skipped
+        // when applied (and reported), and writes stay blocked.
+        if family == Family::Tombstone && !matches!(payload.get("dloid"), Some(Value::String(_))) {
+            return Err(malformed("tombstone without dloid".into()));
+        }
+        return Ok(());
+    }
     let key_type: fn(&str) -> Ty = match family {
         Family::Task => task_key_type,
         Family::Area => area_key_type,
@@ -545,7 +603,7 @@ mod tests {
     fn rejects_bad_pages_atomically() {
         let mut s = State::new();
         let good = vec![item("T", "Task6", 0, json!({"tt":"ok"}))];
-        let unknown = vec![item("X", "Task7", 0, json!({}))];
+        let unknown = vec![item("X", "Widget1", 0, json!({}))];
         assert!(matches!(s.apply_entries(0, &[good.clone(), unknown]), Err(StateError::UnknownKind { .. })));
         assert!(s.tasks.is_empty(), "nothing applied when a later entry is invalid");
         let wrong_type = vec![item("T", "Task6", 1, json!({"tt": 5}))];
@@ -554,6 +612,32 @@ mod tests {
         assert!(matches!(s.apply_entries(0, &[bad_action]), Err(StateError::UnknownAction { .. })));
         // Settings of any version are ignored.
         s.apply_entries(0, &[vec![item("S", "Settings5", 9, json!(1))]]).unwrap();
+    }
+
+    #[test]
+    fn reads_newer_kinds_best_effort_and_reports_them() {
+        let mut s = State::new();
+        s.apply_entries(
+            0,
+            &[vec![
+                item("T", "Task7", 0, json!({"tt":"From new Things","st":1,"sr":1770681600,"tg":["G"],"zz":{"new":true},"ix":"weird"})),
+                item("C", "ChecklistItem4", 0, json!({"tt":"Step","ts":["T"]})),
+            ]],
+        )
+        .unwrap();
+        let t = &s.tasks["T"];
+        assert_eq!(t.title, "From new Things");
+        assert_eq!(t.start, Start::Anytime);
+        assert_eq!(t.tags, vec!["G"]);
+        assert_eq!(t.index, 0, "mistyped field ignored, not misread");
+        assert_eq!(s.checklist["C"].tasks, vec!["T"]);
+        assert_eq!(s.newer_kinds["Task7"], 1);
+        assert_eq!(s.newer_kinds["ChecklistItem4"], 1);
+        let fields: Vec<_> = s.unfamiliar_fields["Task7"].iter().cloned().collect();
+        assert_eq!(fields, vec!["ix", "zz"]);
+        assert!(!t.revs.fields.contains_key("zz"));
+        // Old kinds stay strict.
+        assert!(s.apply_entries(1, &[vec![item("U", "Task6", 0, json!({"ix":"weird"}))]]).is_err());
     }
 
     #[test]

@@ -144,6 +144,28 @@ function SyncTab() {
       <button className="btn" onClick={() => void run(() => backend.syncNow())} disabled={account.mode === "signedOut"}>
         Sync now
       </button>
+      {app.format.newerKinds.length > 0 && (
+        <>
+          <h3>Data format</h3>
+          <div className="callout warn-callout">
+            <p>
+              Your account contains Things data in a newer format than the one Tings 3 has been validated against:{" "}
+              <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Tings 3 reads it as well as it can, but{" "}
+              <strong>changes are turned off</strong> for this account, even if writing is allowed below. Writing the older format next to the new one could make
+              Things on your iPhone misbehave.
+            </p>
+            {app.format.newerKinds.some((k) => k.unfamiliarFields.length) && (
+              <p className="fine">
+                Fields not yet understood (names only):{" "}
+                {app.format.newerKinds
+                  .filter((k) => k.unfamiliarFields.length)
+                  .map((k) => `${k.kind}: ${k.unfamiliarFields.join(", ")}`)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </>
+      )}
       <h3>Writing to Things Cloud</h3>
       <Toggle
         label="Allow changes to be saved to Things Cloud"
@@ -640,7 +662,16 @@ export function IssueBanner() {
 export function ReadOnlyBanner() {
   const app = useStore((s) => s.app);
   const openDialog = useStore((s) => s.openDialog);
-  if (!app || app.account.mode !== "cloud" || app.policy.writes) return null;
+  if (!app || app.account.mode !== "cloud" || app.canWrite) return null;
+  if (app.format.newerKinds.length)
+    return (
+      <div className="readonly-banner">
+        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) that Tings 3 can't safely write yet.
+        <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
+          Details…
+        </button>
+      </div>
+    );
   return (
     <div className="readonly-banner">
       <LockIcon size={12} /> Read-only — changes can't be made until you enable writing.

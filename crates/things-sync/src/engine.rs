@@ -56,6 +56,8 @@ pub enum WriteError {
     DestructiveDisabled,
     #[error("An earlier change has an unknown outcome. Resolve it before making more changes.")]
     Blocked { journal_id: i64 },
+    #[error("This account uses a newer Things data format ({}) that Tings 3 can read but has not been validated to write. Changes are turned off to protect your account.", kinds.join(", "))]
+    UnsupportedFormat { kinds: Vec<String> },
     #[error("This was changed on another device ({}).", fields.join(", "))]
     Conflict { entity_id: String, fields: Vec<String> },
     #[error("{message}")]
@@ -241,6 +243,17 @@ impl Engine {
         Ok(())
     }
 
+    /// Writes are refused while the history holds kinds newer than the ones
+    /// whose write format is known (e.g. `Task7`): writing the older format
+    /// next to them has never been tested against the official apps.
+    fn check_format(&self) -> Result<(), WriteError> {
+        if self.state.newer_kinds.is_empty() {
+            Ok(())
+        } else {
+            Err(WriteError::UnsupportedFormat { kinds: self.state.newer_kinds.keys().cloned().collect() })
+        }
+    }
+
     /// Applies one user edit. See the module docs for the safety steps.
     pub fn apply(&mut self, m: &Mutation, force: bool, ctx: &Ctx) -> Result<WriteReport, WriteError> {
         if !self.policy.writes {
@@ -252,12 +265,14 @@ impl Engine {
         if let Some(open) = self.cache.journal_open()?.first() {
             return Err(WriteError::Blocked { journal_id: open.id });
         }
+        self.check_format()?;
 
         self.sync().map_err(|e| WriteError::Sync { message: e.to_string() })?;
         // Sync may have reconciled/missed nothing new, but re-check the gate.
         if let Some(open) = self.cache.journal_open()?.first() {
             return Err(WriteError::Blocked { journal_id: open.id });
         }
+        self.check_format()?;
 
         let plan = mutation::plan(&self.state, m, ctx)?;
         if !force {
@@ -442,6 +457,22 @@ mod tests {
     }
 
     #[test]
+    fn newer_data_format_is_readable_but_blocks_writes() {
+        let mut s = setup(WRITES);
+        s.fake.push_remote(vec![Item::new(id::new_id(), "Task7", 0, json!({"tt":"Made by a newer Things","st":0,"ix":1,"zz":1}))]);
+        let err = s.engine.apply(&rename(&s.task, 0, "x"), false, &ctx()).unwrap_err();
+        assert_eq!(err, WriteError::UnsupportedFormat { kinds: vec!["Task7".into()] });
+        assert_eq!(s.fake.commits_received(), 0, "nothing is sent");
+        assert!(s.engine.snapshot().tasks.iter().any(|t| t.title == "Made by a newer Things"));
+        assert_eq!(s.engine.state().unfamiliar_fields["Task7"].iter().collect::<Vec<_>>(), vec!["zz"]);
+        // Still blocked after a restart (format detected from the cache).
+        assert!(matches!(
+            s.engine.apply(&Mutation::CreateArea { title: "y".into() }, false, &ctx()),
+            Err(WriteError::UnsupportedFormat { .. })
+        ));
+    }
+
+    #[test]
     fn remote_deletion_is_reported() {
         let mut s = setup(WRITES);
         s.fake.push_remote(vec![Item::new(id::new_id(), "Tombstone2", 0, json!({"dloid": s.task, "dld": 1.0}))]);
@@ -528,7 +559,7 @@ mod tests {
         for i in 0..3 {
             fake.push_remote(vec![Item::new(id::new_id(), "Area3", 0, json!({"tt": format!("A{i}")}))]);
         }
-        fake.push_remote(vec![Item::new(id::new_id(), "Task99", 0, json!({}))]);
+        fake.push_remote(vec![Item::new(id::new_id(), "Widget1", 0, json!({}))]);
         let mut e = Engine::open(fake.clone(), fake.history_key(), Cache::in_memory().unwrap(), WRITES).unwrap();
         assert!(matches!(e.sync(), Err(EngineError::State(_))));
         assert_eq!(e.state().applied_index, 3, "good pages kept, bad page not applied");

@@ -75,7 +75,7 @@ export function NewTaskDraft({ section, onDone }: { section?: string; onDone: ()
 function ProjectHeader({ project }: { project: Task }) {
   const view = useStore((s) => s.view)!;
   const apply = useStore((s) => s.apply);
-  const writable = useStore((s) => !!s.app?.policy.writes);
+  const writable = useStore((s) => !!s.app?.canWrite);
   const [title, setTitle] = useState(project.title);
   const [notes, setNotes] = useState(project.notes);
   useEffect(() => {

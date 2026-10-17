@@ -40,6 +40,8 @@ export class MockBackend implements Backend {
       recentWrites: [],
       settings: loadSettings(),
       platform: { os: "browser", micaAvailable: false, version: "dev" },
+      canWrite: true,
+      format: { newerKinds: [] },
     };
   }
 
@@ -94,7 +96,7 @@ export class MockBackend implements Backend {
   }
 
   async setPolicy(p: WritePolicy) {
-    this.emit({ policy: { writes: p.writes, destructive: p.writes && p.destructive } });
+    this.emit({ policy: { writes: p.writes, destructive: p.writes && p.destructive }, canWrite: p.writes });
   }
 
   async dismissIssue(id: number) {
