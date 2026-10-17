@@ -386,28 +386,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cairn"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "keyring",
- "log",
- "serde",
- "serde_json",
- "sha1",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-notification",
- "tauri-plugin-single-instance",
- "things-cloud",
- "things-sync",
- "thiserror 2.0.21",
- "windows-version",
-]
-
-[[package]]
 name = "cairo-rs"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4485,6 +4463,28 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tings3"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "keyring",
+ "log",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-notification",
+ "tauri-plugin-single-instance",
+ "things-cloud",
+ "things-sync",
+ "thiserror 2.0.21",
+ "windows-version",
 ]
 
 [[package]]

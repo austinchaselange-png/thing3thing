@@ -1,5 +1,5 @@
 /* =========================================================================
-   Cairn — Things 3's layout in MacroTrack's macOS design language.
+   Tings 3 — Things 3's layout in MacroTrack's macOS design language.
    System colours, 13 px base, hairline separators, inset grouped boxes.
    ========================================================================= */
 @font-face {
@@ -236,60 +236,51 @@ kbd {
 }
 
 /* ---------------- window chrome ---------------- */
-.traffic {
+/* Windows-style caption buttons, top-right, full title-bar height. */
+.caption {
   display: flex;
-  gap: 8px;
+  align-self: stretch;
+  margin-left: 4px;
+  margin-right: -14px;
 }
-.tl {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: none;
-  padding: 0;
+.cap {
+  width: 46px;
+  height: 100%;
   display: grid;
   place-items: center;
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  background: transparent;
+  transition: background 0.1s;
 }
-.tl svg {
-  width: 8px;
-  height: 8px;
-  opacity: 0;
-  stroke: rgba(0, 0, 0, 0.55);
-  stroke-width: 1.4;
+.cap svg {
+  width: 10px;
+  height: 10px;
   fill: none;
-  stroke-linecap: round;
+  stroke: currentColor;
+  stroke-width: 1;
+  shape-rendering: geometricPrecision;
 }
-.tl svg .fill {
-  fill: rgba(0, 0, 0, 0.55);
-  stroke: none;
+.cap:hover {
+  background: var(--hover);
 }
-.tl-close {
-  background: #ff5f57;
+.cap:active {
+  background: var(--fill);
 }
-.tl-min {
-  background: #febc2e;
+.cap-close:hover {
+  background: #c42b1c;
+  color: #fff;
 }
-.tl-max {
-  background: #28c840;
+.cap-close:active {
+  background: #b22a1b;
+  color: rgba(255, 255, 255, 0.8);
 }
-.traffic:hover .tl svg {
-  opacity: 1;
+body.inactive .cap {
+  color: var(--muted);
 }
-.tl:active {
-  filter: brightness(0.82);
-}
-body.inactive .tl {
-  background: var(--fill-2);
-  box-shadow: none;
-}
-body.inactive .traffic:hover .tl-close {
-  background: #ff5f57;
-}
-body.inactive .traffic:hover .tl-min {
-  background: #febc2e;
-}
-body.inactive .traffic:hover .tl-max {
-  background: #28c840;
+.splash-top .caption {
+  margin: 0 0 0 auto;
+  height: 32px;
+  align-self: flex-start;
 }
 
 /* ---------------- layout ---------------- */
@@ -317,13 +308,259 @@ html.mica .sidebar {
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  gap: 9px;
+  padding: 0 18px;
+}
+
+.brand-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  -webkit-user-drag: none;
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--text);
 }
 
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 2px 10px 8px;
+  padding: 2px 10px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- sidebar cards ---------- */
+.side-widgets {
+  margin-top: auto;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.side-card {
+  background: var(--box);
+  border-radius: var(--r-box);
+  box-shadow: 0 0 0 0.5px var(--sep);
+  padding: 2px 10px 10px;
+}
+
+[data-theme="dark"] .side-card {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.side-card.collapsed {
+  padding-bottom: 2px;
+}
+
+.side-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  text-align: left;
+}
+
+.side-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.side-card-meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.side-card-chev {
+  color: var(--faint);
+  transform: rotate(90deg);
+  transition: transform 0.15s var(--ease);
+  flex: none;
+}
+
+.side-card-head:not(:has(.side-card-meta)) .side-card-chev {
+  margin-left: auto;
+}
+
+.side-card.collapsed .side-card-chev {
+  transform: none;
+}
+
+.side-card-foot,
+.side-empty {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.side-card-foot {
+  margin-top: 8px;
+}
+
+.prog-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--fill);
+  overflow: hidden;
+  margin: 2px 0 10px;
+}
+
+.prog-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--good);
+  transition: width 0.3s var(--ease);
+}
+
+.week-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.wk-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.wk-bar {
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--fill);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.wk-bar span {
+  width: 100%;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 4px 4px 0 0;
+}
+
+.wk-col.today .wk-bar span {
+  background: var(--accent);
+}
+
+.wk-day {
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.wk-col.today .wk-day {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.up-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.up-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-ctl);
+  text-align: left;
+  font-size: 12.5px;
+}
+
+.up-row:hover {
+  background: var(--hover);
+}
+
+.up-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-anytime);
+  flex: none;
+  margin: 0 2px;
+}
+
+.up-flag {
+  color: var(--c-deadline);
+  flex: none;
+}
+
+.up-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.up-days {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.up-days.soon {
+  color: var(--warn);
+}
+
+.up-days.now {
+  color: var(--danger);
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11.5px;
+  background: var(--fill);
+  color: var(--text-2);
+}
+
+.tag-pill span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-pill:hover {
+  background: var(--fill-2);
+}
+
+.tag-pill.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tag-pill.active span {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .nav-group {
@@ -395,17 +632,43 @@ html.mica .sidebar {
 }
 
 .sidebar-foot {
+  flex: none;
+  padding: 8px 10px 8px;
+  border-top: 1px solid var(--hair);
+}
+
+.foot-row {
   display: flex;
   align-items: center;
-  padding: 8px 10px 4px;
-  border-top: 1px solid var(--hair);
+  gap: 4px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--r-ctl);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.settings-row svg {
+  color: var(--accent);
+}
+
+.settings-row:hover {
+  background: var(--hover);
 }
 
 .new-list {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-2);
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
   height: 26px;
   padding: 0 8px;
   border-radius: var(--r-ctl);
@@ -423,15 +686,14 @@ html.mica .sidebar {
 .sync-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 10px 10px;
-  height: 24px;
-  padding: 0 8px;
+  gap: 7px;
+  width: 100%;
+  height: 22px;
+  padding: 0 8px 0 11px;
   border-radius: var(--r-ctl);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--muted);
   text-align: left;
-  width: calc(100% - 20px);
 }
 
 .sync-indicator:hover {
@@ -440,6 +702,29 @@ html.mica .sidebar {
 
 .sync-indicator.warn {
   color: var(--warn);
+}
+
+.status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--good);
+}
+
+.status-dot.muted {
+  background: var(--faint);
+}
+
+.status-dot.busy {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
 .ro-badge {
@@ -1192,8 +1477,7 @@ button.chip.active:hover {
   right: 0;
   height: var(--tb-h);
   display: flex;
-  align-items: center;
-  padding: 0 20px;
+  align-items: flex-start;
 }
 
 .splash h1 {

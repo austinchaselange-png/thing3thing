@@ -34,7 +34,7 @@ impl ItemsPage {
     }
 }
 
-/// The four Things Cloud operations Cairn uses. Implemented by
+/// The four Things Cloud operations Tings 3 uses. Implemented by
 /// [`crate::http::HttpTransport`] (real service) and [`crate::fake::FakeCloud`].
 pub trait Transport: Send + Sync {
     fn verify(&self, email: &str, password: &Secret) -> Result<Account, CloudError>;

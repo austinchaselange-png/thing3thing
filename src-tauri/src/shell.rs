@@ -16,7 +16,7 @@ pub const QUICK: &str = "quick";
 
 pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::Result<WebviewWindow> {
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
-        .title("Cairn")
+        .title("Tings 3")
         .inner_size(1120.0, 740.0)
         .min_inner_size(720.0, 480.0)
         .decorations(false) // the UI draws its own title bar and traffic lights
@@ -136,16 +136,16 @@ pub fn set_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Cairn", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Tings 3", true, None::<&str>)?;
     let quick = MenuItem::with_id(app, "quick", "New To-Do…", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "Sync Now", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Cairn", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Tings 3", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&show, &quick, &sep, &sync, &settings, &sep2, &quit])?;
-    let mut builder = TrayIconBuilder::with_id("cairn")
-        .tooltip("Cairn")
+    let mut builder = TrayIconBuilder::with_id("tings3")
+        .tooltip("Tings 3")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -154,7 +154,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "sync" => app.state::<Arc<Core>>().sync_now(),
             "settings" => {
                 show_main(app);
-                let _ = app.emit_to(MAIN, "cairn:settings", ());
+                let _ = app.emit_to(MAIN, "tings3:settings", ());
             }
             "quit" => app.exit(0),
             _ => {}

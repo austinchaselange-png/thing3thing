@@ -3,7 +3,7 @@ import { DESTRUCTIVE } from "../types";
 import { applyMutation, MutationError } from "../lib/applyMutation";
 import type { Backend } from "./Backend";
 
-const SETTINGS_KEY = "cairn.mock.settings";
+const SETTINGS_KEY = "tings3.mock.settings";
 
 function loadSettings(): Settings {
   const defaults: Settings = { quickEntryShortcut: "Ctrl+Alt+Space", closeToTray: true, launchAtLogin: false, notifications: true, pollSeconds: 30, mica: false };

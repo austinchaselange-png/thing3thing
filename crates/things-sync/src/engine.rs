@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn crash_during_send_is_recovered_as_uncertain() {
         let fake = Arc::new(FakeCloud::new("me@example.com", "pw"));
-        let dir = std::env::temp_dir().join(format!("cairn-engine-{}", id::new_id()));
+        let dir = std::env::temp_dir().join(format!("tings3-engine-{}", id::new_id()));
         let path = dir.join("cache.sqlite");
         let task = id::new_id();
         fake.push_remote(vec![Item::new(&task, "Task6", 0, json!({"tt":"A"}))]);
@@ -546,7 +546,7 @@ mod tests {
     fn cache_is_bound_to_one_history() {
         let fake = Arc::new(FakeCloud::new("me@example.com", "pw"));
         fake.push_remote(vec![Item::new(id::new_id(), "Area3", 0, json!({"tt":"Mine"}))]);
-        let dir = std::env::temp_dir().join(format!("cairn-bind-{}", id::new_id()));
+        let dir = std::env::temp_dir().join(format!("tings3-bind-{}", id::new_id()));
         let path = dir.join("cache.sqlite");
         let mut e = Engine::open(fake.clone(), fake.history_key(), Cache::open(&path).unwrap(), WRITES).unwrap();
         e.sync().unwrap();

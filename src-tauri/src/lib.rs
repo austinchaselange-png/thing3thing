@@ -1,4 +1,4 @@
-//! Cairn desktop app: Tauri shell around the things-sync engine.
+//! Tings 3 desktop app: Tauri shell around the things-sync engine.
 
 mod commands;
 mod core;
@@ -37,7 +37,7 @@ pub fn run() {
             // Keep the OS autostart entry in line with the saved preference.
             let _ = shell::set_autostart(&handle, settings.launch_at_login);
 
-            std::thread::Builder::new().name("cairn-sync".into()).spawn(move || core.run_worker())?;
+            std::thread::Builder::new().name("tings3-sync".into()).spawn(move || core.run_worker())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -56,5 +56,5 @@ pub fn run() {
             commands::show_main_window,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Cairn");
+        .expect("error while running Tings 3");
 }

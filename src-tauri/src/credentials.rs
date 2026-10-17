@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 use things_cloud::Secret;
 
-const SERVICE: &str = "Cairn (Things Cloud)";
+const SERVICE: &str = "Tings 3 (Things Cloud)";
 
 pub struct StoredCredentials {
     pub password: Secret,
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn windows_credential_manager_round_trip() {
         let store = OsCredentialStore;
-        let user = format!("cairn-ci-{}@example.invalid", things_cloud::id::new_id());
+        let user = format!("tings3-ci-{}@example.invalid", things_cloud::id::new_id());
         let creds = StoredCredentials { password: Secret::new("not-a-real-password"), history_key: Secret::new("not-a-real-key") };
         store.save(&user, &creds).expect("save");
         let loaded = store.load(&user).expect("load").expect("present");

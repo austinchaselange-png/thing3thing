@@ -14,10 +14,10 @@ window.addEventListener("focus", () => document.body.classList.remove("inactive"
 // Menu/tray actions from the Rust side arrive as events.
 if (isTauri()) {
   void import("@tauri-apps/api/event").then(({ listen }) => {
-    void listen("cairn:new-task", () => window.dispatchEvent(new Event("cairn:new-task")));
-    void listen("cairn:quick-find", () => useStore.getState().openDialog({ kind: "quickFind" }));
-    void listen("cairn:settings", () => useStore.getState().openDialog({ kind: "settings" }));
-    void listen<{ taskId: string }>("cairn:show-task", (e) => {
+    void listen("tings3:new-task", () => window.dispatchEvent(new Event("tings3:new-task")));
+    void listen("tings3:quick-find", () => useStore.getState().openDialog({ kind: "quickFind" }));
+    void listen("tings3:settings", () => useStore.getState().openDialog({ kind: "settings" }));
+    void listen<{ taskId: string }>("tings3:show-task", (e) => {
       const s = useStore.getState();
       s.select({ kind: "list", id: "today" });
       s.selectTask(e.payload.taskId);

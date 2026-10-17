@@ -182,8 +182,8 @@ export function ListView() {
   // Global "new to-do" requests (Ctrl+N, toolbar, tray).
   useEffect(() => {
     const onNew = () => setDraft(filtered.find((g) => g.key !== "done")?.key ?? "default");
-    window.addEventListener("cairn:new-task", onNew);
-    return () => window.removeEventListener("cairn:new-task", onNew);
+    window.addEventListener("tings3:new-task", onNew);
+    return () => window.removeEventListener("tings3:new-task", onNew);
   });
   useEffect(() => setDraft(null), [selection]);
 

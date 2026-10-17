@@ -1,12 +1,12 @@
 [package]
-name = "cairn"
+name = "tings3"
 description = "Things-style task manager for Windows that syncs with Things Cloud"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "cairn_lib"
+name = "tings3_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

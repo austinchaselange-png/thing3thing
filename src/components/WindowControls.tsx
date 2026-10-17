@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { isTauri } from "../backend";
 
 type Action = "close" | "minimize" | "toggleMaximize";
@@ -11,23 +12,57 @@ async function act(action: Action) {
   else await w.toggleMaximize();
 }
 
-/** macOS-style traffic lights drawn by the app (the window has no native frame). */
-export function TrafficLights() {
+function useMaximized(): boolean {
+  const [max, setMax] = useState(false);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: (() => void) | undefined;
+    let alive = true;
+    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+      const w = getCurrentWindow();
+      const sync = async () => {
+        if (alive) setMax(await w.isMaximized());
+      };
+      await sync();
+      off = await w.onResized(() => void sync());
+    });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, []);
+  return max;
+}
+
+/**
+ * Windows-style caption buttons (minimize, maximize/restore, close) for the
+ * top-right corner. The window has no native frame, so the app draws them,
+ * following the Segoe Fluent caption glyphs.
+ */
+export function CaptionButtons() {
+  const maximized = useMaximized();
   return (
-    <div className="traffic">
-      <button className="tl tl-close" aria-label="Close" onClick={() => void act("close")}>
-        <svg viewBox="0 0 8 8">
-          <path d="M2 2l4 4M6 2L2 6" />
+    <div className="caption" role="group" aria-label="Window">
+      <button className="cap" aria-label="Minimize" title="Minimize" onClick={() => void act("minimize")}>
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 5.5h10" />
         </svg>
       </button>
-      <button className="tl tl-min" aria-label="Minimize" onClick={() => void act("minimize")}>
-        <svg viewBox="0 0 8 8">
-          <path d="M1.5 4h5" />
-        </svg>
+      <button className="cap" aria-label={maximized ? "Restore" : "Maximize"} title={maximized ? "Restore Down" : "Maximize"} onClick={() => void act("toggleMaximize")}>
+        {maximized ? (
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2.5 2.5V1.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v5.6c0 .4-.3.7-.7.7H7.5" />
+            <rect x="0.5" y="2.5" width="7" height="7" rx="0.7" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0.5" y="0.5" width="9" height="9" rx="0.8" />
+          </svg>
+        )}
       </button>
-      <button className="tl tl-max" aria-label="Maximize" onClick={() => void act("toggleMaximize")}>
-        <svg viewBox="0 0 8 8">
-          <path className="fill" d="M2 2h3.2L2 5.2z M6 6H2.8L6 2.8z" />
+      <button className="cap cap-close" aria-label="Close" title="Close" onClick={() => void act("close")}>
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
         </svg>
       </button>
     </div>

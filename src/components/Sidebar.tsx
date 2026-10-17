@@ -4,9 +4,9 @@ import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
 import type { ListId, Selection, Task, When } from "../types";
-import { AreaIcon, CloudIcon, GearIcon, LaptopIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
+import { AreaIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
 import { Popover } from "./Pickers";
-import { TrafficLights } from "./WindowControls";
+import { SidebarWidgets } from "./SidebarWidgets";
 
 const LISTS: ListId[][] = [["inbox"], ["today", "upcoming", "anytime", "someday"], ["logbook", "trash"]];
 
@@ -32,7 +32,7 @@ function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; i
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const id = e.dataTransfer.getData("application/x-cairn-task");
+    const id = e.dataTransfer.getData("application/x-tings3-task");
     const t = useStore.getState().view?.tasks.find((x) => x.id === id);
     if (t && action) action(t);
   };
@@ -41,7 +41,7 @@ function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; i
       className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}`}
       onClick={() => useStore.getState().select(sel)}
       onDragOver={(e) => {
-        if (action && e.dataTransfer.types.includes("application/x-cairn-task")) {
+        if (action && e.dataTransfer.types.includes("application/x-tings3-task")) {
           e.preventDefault();
           setOver(true);
         }
@@ -64,6 +64,13 @@ function ago(ms: number) {
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   return new Date(ms).toLocaleDateString();
+}
+
+function savedAt(ms: number) {
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 export function SyncIndicator() {
@@ -101,8 +108,12 @@ export function SyncIndicator() {
   };
   return (
     <button className={`sync-indicator ${tone}`} onClick={open} title={sync.lastError ?? text}>
-      {tone === "warn" ? <WarningIcon size={13} /> : local ? <LaptopIcon size={13} /> : <CloudIcon size={13} className={sync.phase === "syncing" || pending ? "spin-soft" : ""} />}
-      <span>{local ? "Stored on this PC" : text}</span>
+      {tone === "warn" ? (
+        <WarningIcon size={12} />
+      ) : (
+        <span className={`status-dot ${tone}${sync.phase === "syncing" || pending ? " busy" : ""}`} aria-hidden="true" />
+      )}
+      <span className="status-text">{local ? (sync.lastSyncedAt ? `Saved ${savedAt(sync.lastSyncedAt)} · on this PC` : "Stored on this PC") : text}</span>
       {account.mode === "cloud" && !policy.writes && (
         <span className="ro-badge" title="Read-only: writes to Things Cloud are turned off">
           <LockIcon size={11} /> Read-only
@@ -139,7 +150,10 @@ export function Sidebar() {
   return (
     <nav className="sidebar" aria-label="Lists">
       <div className="side-top" data-tauri-drag-region>
-        <TrafficLights />
+        <img className="brand-icon" src="/app-icon.png" alt="" data-tauri-drag-region />
+        <span className="brand-name" data-tauri-drag-region>
+          Tings 3
+        </span>
       </div>
       <div className="sidebar-scroll">
         {LISTS.map((group, i) => (
@@ -166,17 +180,20 @@ export function Sidebar() {
             {projects.map(project)}
           </div>
         ))}
+        <SidebarWidgets snap={view} ix={ix} />
       </div>
       <div className="sidebar-foot">
-        <button className="new-list" onClick={(e) => setMenuAnchor(e.currentTarget)}>
-          <PlusIcon size={14} /> New List
-        </button>
-        <span className="grow" />
-        <button className="icon-btn" aria-label="Settings" title="Settings (Ctrl+,)" onClick={() => openDialog({ kind: "settings" })}>
-          <GearIcon />
-        </button>
+        <div className="foot-row">
+          <button className="settings-row" title="Settings (Ctrl+,)" onClick={() => openDialog({ kind: "settings" })}>
+            <GearIcon size={16} /> Settings
+          </button>
+          <span className="grow" />
+          <button className="new-list" title="New Project or Area" onClick={(e) => setMenuAnchor(e.currentTarget)}>
+            <PlusIcon size={13} /> New List
+          </button>
+        </div>
+        <SyncIndicator />
       </div>
-      <SyncIndicator />
       {menuAnchor && (
         <Popover anchor={menuAnchor} onClose={() => setMenuAnchor(null)} width={240}>
           <NewListMenu onDone={() => setMenuAnchor(null)} />

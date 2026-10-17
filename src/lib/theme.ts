@@ -2,7 +2,7 @@
 // localStorage, which the main and Quick Entry windows share.
 export type ThemePref = "system" | "light" | "dark";
 
-const KEY = "cairn.theme";
+const KEY = "tings3.theme";
 const media = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
 export function getThemePref(): ThemePref {

@@ -1,10 +1,10 @@
-# Cairn
+# Tings 3
 
 A Windows task manager in the spirit of Things 3, built with Tauri 2, React and
-TypeScript. Cairn reads — and, after you opt in, writes — your **Things Cloud**
+TypeScript. Tings 3 reads — and, after you opt in, writes — your **Things Cloud**
 data, so it can stay in sync with Things on your iPhone without a Mac.
 
-> **Unofficial.** Things Cloud has no public API. Cairn speaks a
+> **Unofficial.** Things Cloud has no public API. Tings 3 speaks a
 > reverse-engineered protocol (ported from
 > [things-cloud-mcp](https://github.com/wbopan/things-cloud-mcp) /
 > things-cloud-sdk). It starts read-only, and end-to-end sync with a real
@@ -13,9 +13,9 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 
 ![Today](docs/screenshots/today.png)
 
-| Project with headings and the to-do editor | When picker | Dark mode |
-|---|---|---|
-| ![Project](docs/screenshots/project-editor.png) | ![When](docs/screenshots/when-picker.png) | ![Dark](docs/screenshots/today-dark.png) |
+| Dark mode | Sidebar cards: progress, coming up, tags |
+|---|---|
+| ![Dark](docs/screenshots/today-dark.png) | ![Sidebar](docs/screenshots/sidebar-dark.png) |
 
 ## Features
 
@@ -27,7 +27,10 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
   dates like "next fri"). Drag to-dos onto sidebar lists, projects or areas.
 * **Quick Entry:** global shortcut (default **Ctrl+Alt+Space**) opens a small
   always-on-top window that understands `Pay rent friday at 9am #Home due oct 31`.
-* **Windows integration:** tray icon, close-to-tray, launch at sign-in,
+* **Sidebar at a glance:** today's progress with a 7-day chart and streak,
+  your next deadlines and scheduled to-dos with countdowns, and tag shortcuts.
+* **Windows integration:** frameless window with Windows-style minimize /
+  maximize / close buttons, tray icon, close-to-tray, launch at sign-in,
   reminder notifications, single instance, optional Mica sidebar on Windows 11,
   System/Light/Dark appearance in MacroTrack's macOS-style look.
 * **Things Cloud connector:** local, in-process Rust connector — no hosted
@@ -42,11 +45,11 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 
 ## Install
 
-Download the latest `Cairn_*_x64-setup.exe` (or `.msi`) from the
+Download the latest `Tings 3_*_x64-setup.exe` (or `.msi`) from the
 **Windows build** workflow's artifacts on GitHub Actions. The installers are
 unsigned, so SmartScreen will ask you to confirm.
 
-On first launch Cairn starts with an empty list stored only on your PC.
+On first launch Tings 3 starts with an empty list stored only on your PC.
 Connect your account in **Settings → Account**.
 
 ## Keyboard shortcuts

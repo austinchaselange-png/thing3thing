@@ -338,7 +338,7 @@ impl Core {
                     s.next_attempt_at = None;
                 });
                 if !report.missing.is_empty() {
-                    self.notify("A change may not have been saved", "Open Cairn to review it.");
+                    self.notify("A change may not have been saved", "Open Tings 3 to review it.");
                 }
             }
             Err(EngineError::Cloud(CloudError::Http { status: 401 | 403 | 404, .. }))
@@ -372,7 +372,7 @@ impl Core {
                     s.last_error = Some(msg.clone());
                 });
                 if halt {
-                    self.notify("Cairn stopped syncing", &msg);
+                    self.notify("Tings 3 stopped syncing", &msg);
                 }
             }
         }
@@ -403,7 +403,7 @@ impl Core {
                     s.phase = Phase::Error;
                     s.last_error = Some(msg.clone());
                 });
-                self.notify("Cairn needs you to sign in again", "Open Settings → Account to reconnect.");
+                self.notify("Tings 3 needs you to sign in again", "Open Settings → Account to reconnect.");
             }
         }
         self.publish(&inner);
@@ -443,7 +443,7 @@ impl Core {
         let engine = inner.engine.as_mut().ok_or_else(|| plain_error("noAccount", "Connect an account first."))?;
         let result = engine.apply(&m, force, &ctx());
         if let Err(WriteError::Uncertain { .. }) = &result {
-            self.notify("A change may not have been saved", "Cairn will not resend it automatically. Open Cairn to review.");
+            self.notify("A change may not have been saved", "Tings 3 will not resend it automatically. Open Tings 3 to review.");
         }
         if result.is_ok() {
             self.set_status(|s| {

@@ -1,4 +1,4 @@
-# Cairn: Things-style Windows task manager with a local Things Cloud connector
+# Tings 3: Things-style Windows task manager with a local Things Cloud connector
 
 ## Summary
 

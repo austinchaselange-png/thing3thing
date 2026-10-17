@@ -60,7 +60,7 @@ impl FakeCloud {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let fake = FakeCloud::new("demo@cairn.local", "demo");
+        let fake = FakeCloud::new("demo@tings3.local", "demo");
         let history =
             std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Vec<Vec<Item>>>(&bytes).ok()).unwrap_or_else(seed);
         {
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn persists_history() {
-        let dir = std::env::temp_dir().join(format!("cairn-fake-{}", id::new_id()));
+        let dir = std::env::temp_dir().join(format!("tings3-fake-{}", id::new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("demo.json");
         let a = FakeCloud::persistent(path.clone(), || vec![vec![Item::new("s", "Area3", 0, json!({"tt":"Seed"}))]]);

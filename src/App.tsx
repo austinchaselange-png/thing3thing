@@ -6,7 +6,7 @@ import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, HeadingIcon, Plus
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
-import { TrafficLights } from "./components/WindowControls";
+import { CaptionButtons } from "./components/WindowControls";
 import { useStore } from "./store";
 import type { ListId, Task } from "./types";
 
@@ -59,7 +59,7 @@ export function App() {
 
       if (ctrl && key === "f") return (e.preventDefault(), s.openDialog({ kind: "quickFind" }));
       if (ctrl && key === ",") return (e.preventDefault(), s.openDialog({ kind: "settings" }));
-      if (ctrl && key === "n") return (e.preventDefault(), window.dispatchEvent(new Event("cairn:new-task")));
+      if (ctrl && key === "n") return (e.preventDefault(), window.dispatchEvent(new Event("tings3:new-task")));
       if (e.key === "F5") return (e.preventDefault(), void getBackend().syncNow());
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
@@ -104,9 +104,9 @@ export function App() {
     return (
       <div className="splash">
         <div className="splash-top" data-tauri-drag-region>
-          <TrafficLights />
+          <CaptionButtons />
         </div>
-        <h1>Cairn couldn't start</h1>
+        <h1>Tings 3 couldn't start</h1>
         <p className="error-text">{loadError}</p>
         <button className="btn primary" onClick={() => void useStore.getState().init()}>
           Try again
@@ -117,7 +117,7 @@ export function App() {
     return (
       <div className="splash" aria-busy="true">
         <div className="splash-top" data-tauri-drag-region>
-          <TrafficLights />
+          <CaptionButtons />
         </div>
         <div className="spinner" />
         <p>Loading your to-dos…</p>
@@ -141,12 +141,13 @@ export function App() {
             <span className="grow">Quick Find</span>
             <kbd>Ctrl F</kbd>
           </button>
+          <CaptionButtons />
         </header>
         <IssueBanner />
         <ReadOnlyBanner />
         {app.account.mode === "signedOut" ? <SignedOut /> : <ListView />}
         <footer className="toolbar" role="toolbar" aria-label="Actions">
-          <button className="tool" title="New To-Do (Ctrl+N)" aria-label="New To-Do" disabled={!writable} onClick={() => window.dispatchEvent(new Event("cairn:new-task"))}>
+          <button className="tool" title="New To-Do (Ctrl+N)" aria-label="New To-Do" disabled={!writable} onClick={() => window.dispatchEvent(new Event("tings3:new-task"))}>
             <PlusIcon />
           </button>
           {inProject && (
@@ -224,8 +225,8 @@ function SignedOut() {
   const openDialog = useStore((s) => s.openDialog);
   return (
     <div className="welcome">
-      <img className="welcome-icon" src="/favicon.png" alt="" />
-      <h1>Welcome to Cairn</h1>
+      <img className="welcome-icon" src="/app-icon.png" alt="" />
+      <h1>Welcome to Tings 3</h1>
       <p className="lead">A calm, Things-style task manager for Windows. Keep your to-dos on this PC, or sync them with Things on your iPhone.</p>
       <div className="card choice-list">
         <button className="choice" onClick={() => openDialog({ kind: "settings", tab: "account" })}>

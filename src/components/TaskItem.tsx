@@ -104,7 +104,7 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
       draggable={writable}
       data-task-id={task.id}
       onDragStart={(e) => {
-        e.dataTransfer.setData("application/x-cairn-task", task.id);
+        e.dataTransfer.setData("application/x-tings3-task", task.id);
         e.dataTransfer.effectAllowed = "move";
       }}
       onClick={() => selectTask(task.id)}
