@@ -1,0 +1,15 @@
+[package]
+name = "things-sync"
+description = "Local cache, sync engine and safe write pipeline for Things Cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+things-cloud = { path = "../things-cloud", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+log.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }

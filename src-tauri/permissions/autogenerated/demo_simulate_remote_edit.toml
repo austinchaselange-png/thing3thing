@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-demo-simulate-remote-edit"
+description = "Enables the demo_simulate_remote_edit command without any pre-configured scope."
+commands.allow = ["demo_simulate_remote_edit"]
+
+[[permission]]
+identifier = "deny-demo-simulate-remote-edit"
+description = "Denies the demo_simulate_remote_edit command without any pre-configured scope."
+commands.deny = ["demo_simulate_remote_edit"]

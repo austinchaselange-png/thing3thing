@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+# Never commit credentials or local data
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+demo-history.json

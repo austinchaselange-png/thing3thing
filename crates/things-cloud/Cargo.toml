@@ -1,0 +1,33 @@
+[package]
+name = "things-cloud"
+description = "Local connector for the unofficial Things Cloud sync protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["http"]
+http = ["dep:reqwest", "dep:base64"]
+cli = ["http", "dep:rpassword"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+log.workspace = true
+getrandom = "0.3"
+sha1 = "0.10"
+crc32fast = "1"
+zeroize = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }
+base64 = { version = "0.22", optional = true }
+rpassword = { version = "7", optional = true }
+
+[dev-dependencies]
+mockito = "1"
+
+[[bin]]
+name = "things-cloud-cli"
+path = "src/bin/things-cloud-cli.rs"
+required-features = ["cli"]

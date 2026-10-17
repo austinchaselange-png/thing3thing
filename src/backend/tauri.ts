@@ -1,0 +1,68 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import type { AppState, Mutation, Settings, WritePolicy, WriteReport } from "../types";
+import type { Backend } from "./Backend";
+
+/** Bridge to the Rust side (src-tauri/src/commands.rs). */
+export class TauriBackend implements Backend {
+  readonly kind = "tauri" as const;
+
+  getState() {
+    return invoke<AppState>("get_state");
+  }
+
+  subscribe(listener: (s: AppState) => void) {
+    const un = listen<AppState>("state", (e) => listener(e.payload));
+    return () => {
+      void un.then((f) => f());
+    };
+  }
+
+  apply(mutation: Mutation, opts: { force?: boolean } = {}) {
+    return invoke<WriteReport>("apply_mutation", { mutation, force: opts.force ?? false });
+  }
+
+  syncNow() {
+    return invoke<void>("sync_now");
+  }
+
+  connect(email: string, password: string) {
+    return invoke<void>("connect_account", { email, password });
+  }
+
+  disconnect(forgetCache: boolean) {
+    return invoke<void>("disconnect_account", { forgetCache });
+  }
+
+  useDemo() {
+    return invoke<void>("use_demo");
+  }
+
+  setPolicy(policy: WritePolicy) {
+    return invoke<void>("set_write_policy", { policy });
+  }
+
+  dismissIssue(id: number) {
+    return invoke<void>("dismiss_issue", { id });
+  }
+
+  reapplyIssue(id: number) {
+    return invoke<WriteReport>("reapply_issue", { id });
+  }
+
+  updateSettings(settings: Partial<Settings>) {
+    return invoke<void>("update_settings", { patch: settings });
+  }
+
+  simulateRemoteEdit() {
+    return invoke<string>("demo_simulate_remote_edit");
+  }
+
+  hideQuickEntry() {
+    return invoke<void>("hide_quick_entry");
+  }
+
+  showMainWindow() {
+    return invoke<void>("show_main_window");
+  }
+}

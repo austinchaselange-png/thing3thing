@@ -1,0 +1,38 @@
+[package]
+name = "tings3"
+description = "Things-style task manager for Windows that syncs with Things Cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "tings3_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+things-cloud = { path = "../crates/things-cloud" }
+things-sync = { path = "../crates/things-sync" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+log.workspace = true
+thiserror.workspace = true
+sha1 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+windows-version = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
