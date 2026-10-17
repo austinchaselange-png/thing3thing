@@ -104,7 +104,7 @@ fn run(cmd: &str, email: &str, password: &Secret, titles: bool) -> Result<(), St
                 if fields.is_empty() { "none".into() } else { fields.join(", ") }
             );
         }
-        println!("               Tings 3 reads these best-effort and keeps writes disabled.");
+        println!("               Read best-effort. Writes are allowed (in this format) only when no unfamiliar fields are listed.");
     }
     if titles {
         for t in open.iter().filter(|t| t.start != Start::Inbox && t.effective_start_date().is_some_and(|d| d <= today)) {
