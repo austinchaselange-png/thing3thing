@@ -65,6 +65,24 @@ fn newer_version(kind: &str) -> Option<(Family, u32)> {
     })
 }
 
+/// The kind to write for `family`, given the newer kinds an account uses:
+/// the newest version seen there, otherwise the validated default.
+pub fn write_kind_for<'a>(family: Family, seen: impl IntoIterator<Item = &'a String>) -> String {
+    let default = match family {
+        Family::Task => kind::TASK,
+        Family::ChecklistItem => kind::CHECKLIST_ITEM,
+        Family::Area => kind::AREA,
+        Family::Tag => kind::TAG,
+        Family::Tombstone => kind::TOMBSTONE,
+        Family::Settings => return String::new(),
+    };
+    seen.into_iter()
+        .filter_map(|k| newer_version(k).filter(|(f, _)| *f == family).map(|(_, v)| (v, k.clone())))
+        .max()
+        .map(|(_, k)| k)
+        .unwrap_or_else(|| default.to_string())
+}
+
 /// True for kinds newer than the ones the reference implementation validated.
 pub fn is_unvalidated_kind(kind: &str) -> bool {
     newer_version(kind).is_some()
@@ -145,6 +163,11 @@ mod tests {
         assert!(!is_unvalidated_kind("Task"));
         assert_eq!(Family::of("Taskforce"), None, "unrelated kinds still fail closed");
         assert_eq!(Family::of("Widget1"), None);
+        let seen = vec!["Task7".to_string(), "Task8".to_string(), "Area4".to_string()];
+        assert_eq!(write_kind_for(Family::Task, &seen), "Task8");
+        assert_eq!(write_kind_for(Family::Area, &seen), "Area4");
+        assert_eq!(write_kind_for(Family::Tag, &seen), "Tag4");
+        assert_eq!(write_kind_for(Family::Task, &Vec::<String>::new()), "Task6");
         assert!(is_legacy_kind("Task4"));
         assert!(!is_legacy_kind("Task6"));
     }

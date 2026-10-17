@@ -91,6 +91,9 @@ pub struct KindCount {
 #[serde(rename_all = "camelCase")]
 pub struct FormatDto {
     pub newer_kinds: Vec<KindCount>,
+    /// True when every newer-format item uses only understood fields, so
+    /// writes are allowed (in that newer format).
+    pub writes_supported: bool,
 }
 
 struct Inner {
@@ -264,9 +267,10 @@ impl Core {
                             unfamiliar_fields: st.unfamiliar_fields.get(kind).map(|f| f.iter().cloned().collect()).unwrap_or_default(),
                         })
                         .collect(),
+                    writes_supported: st.unfamiliar_fields.is_empty(),
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or(FormatDto { newer_kinds: vec![], writes_supported: true });
         let mut sync = self.status.lock().unwrap().clone();
         let mode = if inner.engine.is_none() { AccountMode::SignedOut } else { settings.mode };
         if mode == AccountMode::SignedOut && sync.phase != Phase::Error {
@@ -281,7 +285,7 @@ impl Core {
             recent_writes: recent,
             settings,
             platform: PlatformDto { os: std::env::consts::OS, mica_available: mica_available(), version: env!("CARGO_PKG_VERSION") },
-            can_write: policy.writes && format.newer_kinds.is_empty(),
+            can_write: policy.writes && format.writes_supported,
             format,
         }
     }

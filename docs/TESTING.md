@@ -57,9 +57,10 @@ for Inbox/Today/Upcoming/Someday/projects/areas/tags. Compare with your iPhone.
 Add `--titles` to list Today's titles.
 
 If it prints a `newer format:` line (for example `Task7`), your Things
-apps already use a data format nobody has validated for writing. Tings 3 will
-read it but keep changes turned off for that account. The field names it lists
-(never your data) are what's needed to validate the format.
+apps already use a newer data format. If it lists no unfamiliar fields, Tings 3
+saves changes in that newer format (experimental — test on a disposable account
+first). If it lists unfamiliar fields, changes stay off; the field names (never
+your data) are what's needed to support them.
 
 Then in the app: Settings → Account → Connect. Tings 3 connects **read-only**.
 Check that every list matches your iPhone, edit something on the iPhone, and

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use things_cloud::state::StateError;
 use things_cloud::transport::validate_page;
+use things_cloud::wire::{write_kind_for, Family};
 use things_cloud::{CloudError, CommitError, Item, ItemsPage, Secret, State, Transport};
 
 use crate::cache::{Cache, CacheError, JournalEntry, JournalStatus};
@@ -56,7 +57,7 @@ pub enum WriteError {
     DestructiveDisabled,
     #[error("An earlier change has an unknown outcome. Resolve it before making more changes.")]
     Blocked { journal_id: i64 },
-    #[error("This account uses a newer Things data format ({}) that Tings 3 can read but has not been validated to write. Changes are turned off to protect your account.", kinds.join(", "))]
+    #[error("This account uses a newer Things data format ({}) with fields Tings 3 doesn't understand yet, so changes are turned off to protect your account.", kinds.join(", "))]
     UnsupportedFormat { kinds: Vec<String> },
     #[error("This was changed on another device ({}).", fields.join(", "))]
     Conflict { entity_id: String, fields: Vec<String> },
@@ -246,11 +247,25 @@ impl Engine {
     /// Writes are refused while the history holds kinds newer than the ones
     /// whose write format is known (e.g. `Task7`): writing the older format
     /// next to them has never been tested against the official apps.
+    ///
+    /// A newer kind is accepted as *compatible* when every item of it seen so
+    /// far used only fields we understand, with the expected types. Writes
+    /// then use that newer kind (matching what the official apps now write).
+    /// Any unfamiliar field blocks writes.
     fn check_format(&self) -> Result<(), WriteError> {
-        if self.state.newer_kinds.is_empty() {
+        if self.state.unfamiliar_fields.is_empty() {
             Ok(())
         } else {
-            Err(WriteError::UnsupportedFormat { kinds: self.state.newer_kinds.keys().cloned().collect() })
+            Err(WriteError::UnsupportedFormat { kinds: self.state.unfamiliar_fields.keys().cloned().collect() })
+        }
+    }
+
+    /// Relabels planned items with the kind version this account uses.
+    fn adapt_kinds(&self, items: &mut [Item]) {
+        for item in items {
+            if let Some(family) = Family::of(&item.kind) {
+                item.kind = write_kind_for(family, self.state.newer_kinds.keys());
+            }
         }
     }
 
@@ -274,7 +289,8 @@ impl Engine {
         }
         self.check_format()?;
 
-        let plan = mutation::plan(&self.state, m, ctx)?;
+        let mut plan = mutation::plan(&self.state, m, ctx)?;
+        self.adapt_kinds(&mut plan.items);
         if !force {
             for t in &plan.touched {
                 let Some(base) = t.base_rev else { continue };
@@ -457,19 +473,31 @@ mod tests {
     }
 
     #[test]
-    fn newer_data_format_is_readable_but_blocks_writes() {
+    fn compatible_newer_format_is_written_in_that_format() {
         let mut s = setup(WRITES);
-        s.fake.push_remote(vec![Item::new(id::new_id(), "Task7", 0, json!({"tt":"Made by a newer Things","st":0,"ix":1,"zz":1}))]);
+        let t7 = id::new_id();
+        s.fake.push_remote(vec![Item::new(&t7, "Task7", 0, json!({"tt":"Made by a newer Things","st":0,"ix":1,"tg":[]}))]);
+        s.engine.apply(&rename(&t7, 1, "Renamed here"), false, &ctx()).unwrap();
+        let created = s.engine.apply(&serde_json::from_value(json!({"type":"createTask","title":"New"})).unwrap(), false, &ctx()).unwrap();
+        let entries = s.fake.entries();
+        assert_eq!(entries[entries.len() - 2][0].kind, "Task7", "edits use the account's format");
+        assert_eq!(entries[entries.len() - 1][0].kind, "Task7", "creates use the account's format");
+        assert_eq!(entries[entries.len() - 1][0].uuid, created.created[0]);
+        assert_eq!(s.engine.state().tasks[&t7].title, "Renamed here");
+        // Areas and tags stay on their validated kinds.
+        s.engine.apply(&Mutation::CreateArea { title: "Home".into() }, false, &ctx()).unwrap();
+        assert_eq!(s.fake.entries().last().unwrap()[0].kind, "Area3");
+    }
+
+    #[test]
+    fn unfamiliar_fields_in_a_newer_format_block_writes() {
+        let mut s = setup(WRITES);
+        s.fake.push_remote(vec![Item::new(id::new_id(), "Task7", 0, json!({"tt":"Has a new field","st":0,"ix":1,"zz":1}))]);
         let err = s.engine.apply(&rename(&s.task, 0, "x"), false, &ctx()).unwrap_err();
         assert_eq!(err, WriteError::UnsupportedFormat { kinds: vec!["Task7".into()] });
         assert_eq!(s.fake.commits_received(), 0, "nothing is sent");
-        assert!(s.engine.snapshot().tasks.iter().any(|t| t.title == "Made by a newer Things"));
+        assert!(s.engine.snapshot().tasks.iter().any(|t| t.title == "Has a new field"));
         assert_eq!(s.engine.state().unfamiliar_fields["Task7"].iter().collect::<Vec<_>>(), vec!["zz"]);
-        // Still blocked after a restart (format detected from the cache).
-        assert!(matches!(
-            s.engine.apply(&Mutation::CreateArea { title: "y".into() }, false, &ctx()),
-            Err(WriteError::UnsupportedFormat { .. })
-        ));
     }
 
     #[test]

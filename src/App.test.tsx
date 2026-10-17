@@ -89,7 +89,7 @@ describe("App", () => {
 
   it("goes read-only with an explanation when the account uses a newer data format", async () => {
     const b = backend as unknown as { emit(p: object): void };
-    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }] } });
+    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }], writesSupported: false } });
     render(<App />);
     expect(await screen.findByText(/newer Things data format \(Task7\)/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Complete “Call the dentist/ })).toBeDisabled();

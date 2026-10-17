@@ -148,12 +148,20 @@ function SyncTab() {
         <>
           <h3>Data format</h3>
           <div className="callout warn-callout">
-            <p>
-              Your account contains Things data in a newer format than the one Tings 3 has been validated against:{" "}
-              <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Tings 3 reads it as well as it can, but{" "}
-              <strong>changes are turned off</strong> for this account, even if writing is allowed below. Writing the older format next to the new one could make
-              Things on your iPhone misbehave.
-            </p>
+            {app.format.writesSupported ? (
+              <p>
+                Your Things apps now save to-dos in a newer format: <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Every
+                item seen so far uses only fields Tings 3 understands, so changes are saved in that same format.{" "}
+                <strong>This is experimental:</strong> the new format hasn't been officially documented or verified. If any unfamiliar field shows up, Tings 3
+                turns changes off again automatically.
+              </p>
+            ) : (
+              <p>
+                Your account contains Things data in a newer format with fields Tings 3 doesn't understand yet:{" "}
+                <strong>{app.format.newerKinds.map((k) => `${k.kind} (${k.count})`).join(", ")}</strong>. Tings 3 reads it as well as it can, but{" "}
+                <strong>changes are turned off</strong> for this account, even if writing is allowed below.
+              </p>
+            )}
             {app.format.newerKinds.some((k) => k.unfamiliarFields.length) && (
               <p className="fine">
                 Fields not yet understood (names only):{" "}
@@ -663,10 +671,10 @@ export function ReadOnlyBanner() {
   const app = useStore((s) => s.app);
   const openDialog = useStore((s) => s.openDialog);
   if (!app || app.account.mode !== "cloud" || app.canWrite) return null;
-  if (app.format.newerKinds.length)
+  if (!app.format.writesSupported)
     return (
       <div className="readonly-banner">
-        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) that Tings 3 can't safely write yet.
+        <LockIcon size={12} /> Read-only — this account uses a newer Things data format ({app.format.newerKinds.map((k) => k.kind).join(", ")}) with fields Tings 3 doesn't understand yet.
         <button className="link-btn" onClick={() => openDialog({ kind: "settings", tab: "sync" })}>
           Details…
         </button>

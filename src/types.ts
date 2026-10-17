@@ -199,7 +199,7 @@ export interface AppState {
   platform: { os: string; micaAvailable: boolean; version: string };
   /** Writes allowed now: policy permits them and no unvalidated data format is present. */
   canWrite: boolean;
-  format: { newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[] };
+  format: { newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[]; writesSupported: boolean };
 }
 
 export type ListId = "inbox" | "today" | "upcoming" | "anytime" | "someday" | "logbook" | "trash";
