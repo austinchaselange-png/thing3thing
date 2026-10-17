@@ -19,7 +19,9 @@ import {
   StarIcon,
   TagIcon,
   TrashIcon,
+  UndoIcon,
 } from "./Icons";
+import { checklistMenu, taskMenu } from "./menus";
 import { DeadlinePicker, MovePicker, TagPicker, WhenPicker } from "./Pickers";
 
 const EMPTY_TAGS: Tag[] = [];
@@ -69,6 +71,35 @@ export interface RowContext {
   listId: string;
 }
 
+/** Quick actions shown to the left of the selected row. */
+function RowActions({ task }: { task: Task }) {
+  const openPicker = useStore((s) => s.openPicker);
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (task.trashed)
+    return (
+      <div className="row-actions" onClick={stop} onDoubleClick={stop}>
+        <button className="ra-btn" title="Put Back" aria-label="Put Back" onClick={() => void trash(task, false)}>
+          <UndoIcon size={13} />
+        </button>
+      </div>
+    );
+  return (
+    <div className="row-actions" onClick={stop} onDoubleClick={stop}>
+      {task.status === "open" && (
+        <button className="ra-btn" title="When (Ctrl+S)" aria-label="When" onClick={(e) => openPicker({ kind: "when", taskId: task.id, anchor: e.currentTarget })}>
+          <CalendarIcon size={13} />
+        </button>
+      )}
+      <button className="ra-btn" title="Move (Ctrl+Shift+M)" aria-label="Move" onClick={(e) => openPicker({ kind: "move", taskId: task.id, anchor: e.currentTarget })}>
+        <ArrowRightIcon size={13} />
+      </button>
+      <button className="ra-btn danger" title="Move to Trash (Delete)" aria-label="Move to Trash" onClick={() => void trash(task)}>
+        <TrashIcon size={13} />
+      </button>
+    </div>
+  );
+}
+
 export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: RowContext }) {
   const selected = useStore((s) => s.selectedId === task.id);
   const editing = useStore((s) => s.editingId === task.id);
@@ -109,7 +140,13 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
       }}
       onClick={() => selectTask(task.id)}
       onDoubleClick={() => (isProject ? select({ kind: "project", id: task.id }) : edit(task.id))}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        selectTask(task.id);
+        useStore.getState().openMenu(e, taskMenu(task));
+      }}
     >
+      {selected && writable && <RowActions task={task} />}
       {isProject ? (
         <button className="project-pie" aria-label={`Open project ${task.title}`} onClick={() => select({ kind: "project", id: task.id })}>
           <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} color="var(--c-project)" />
@@ -367,7 +404,15 @@ function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writ
   const [title, setTitle] = useState(item.title);
   useEffect(() => setTitle(item.title), [item.title]);
   return (
-    <div className={`checklist-row${item.completed ? " done" : ""}`} role="listitem">
+    <div
+      className={`checklist-row${item.completed ? " done" : ""}`}
+      role="listitem"
+      onContextMenu={(e) => {
+        if ((e.target as HTMLElement).tagName === "INPUT" && window.getSelection()?.toString()) return; // keep copy/paste on selected text
+        e.preventDefault();
+        useStore.getState().openMenu(e, checklistMenu(item));
+      }}
+    >
       <button
         className={`mini-check${item.completed ? " done" : ""}`}
         role="checkbox"

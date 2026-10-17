@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
@@ -96,5 +96,47 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Details…" }));
     expect(await screen.findByText(/Task7 \(12\)/)).toBeInTheDocument();
     expect(screen.getByText(/Task7: zz/)).toBeInTheDocument();
+  });
+
+  it("right-click menu moves a to-do to the Trash, with Undo", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    fireEvent.contextMenu(screen.getByText("Water the plants"));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Move to Trash/ }));
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Water the plants")).toBeInTheDocument();
+  });
+
+  it("menus work from the keyboard and disable writes when read-only", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Complete/ })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    await act(() => backend.setPolicy({ writes: false, destructive: false }));
+    fireEvent.contextMenu(screen.getByText("Call the dentist to reschedule"));
+    const ro = await screen.findByRole("menu");
+    expect(within(ro).getByRole("menuitem", { name: /Move to Trash/ })).toHaveAttribute("aria-disabled", "true");
+    expect(within(ro).getByRole("menuitem", { name: /Copy Title/ })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("button", { name: "New To-Do" })).toBeDisabled();
+  });
+
+  it("the blue button starts a new to-do and shows quick actions on the selected row", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    expect(screen.queryByRole("toolbar", { name: "Actions" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "New To-Do" }));
+    expect(await screen.findByRole("textbox", { name: "New to-do title" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    expect(screen.getByRole("button", { name: "When" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move to Trash" })).toBeInTheDocument();
   });
 });

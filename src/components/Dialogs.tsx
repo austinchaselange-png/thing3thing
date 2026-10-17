@@ -487,6 +487,71 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
   );
 }
 
+const SHORTCUTS: [string, [string, string][]][] = [
+  ["Create", [["New to-do", "Ctrl+N"], ["Quick Entry (from any app)", "Ctrl+Alt+Space"], ["Duplicate to-do", "Ctrl+D"]]],
+  ["Selected to-do", [["Edit / open", "Enter"], ["Complete", "Ctrl+K"], ["Context menu", "Shift+F10"], ["Move to Trash", "Delete"]]],
+  ["When", [["Today", "Ctrl+T"], ["This Evening", "Ctrl+E"], ["Anytime", "Ctrl+R"], ["Someday", "Ctrl+O"], ["Choose date…", "Ctrl+S"]]],
+  ["Organise", [["Move…", "Ctrl+Shift+M"], ["Tags…", "Ctrl+Shift+T"], ["Deadline…", "Ctrl+Shift+D"]]],
+  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
+];
+
+export function ShortcutsDialog() {
+  return (
+    <Modal title="Keyboard Shortcuts" onClose={close} width={560}>
+      <div className="shortcut-grid">
+        {SHORTCUTS.map(([group, rows]) => (
+          <section key={group}>
+            <h3>{group}</h3>
+            {rows.map(([label, keys]) => (
+              <div className="shortcut-row" key={label}>
+                <span>{label}</span>
+                <kbd className="keycap">{keys}</kbd>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+      <p className="fine">Right-click any to-do, project, area, tag or list for more actions.</p>
+    </Modal>
+  );
+}
+
+export function PromptDialog({ title, label, initial, confirmLabel, onSubmit }: { title: string; label: string; initial: string; confirmLabel: string; onSubmit: (v: string) => void }) {
+  const [value, setValue] = useState(initial);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+  const submit = () => {
+    if (!value.trim()) return;
+    close();
+    onSubmit(value.trim());
+  };
+  return (
+    <Modal
+      title={title}
+      onClose={close}
+      width={400}
+      footer={
+        <>
+          <button className="btn" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!value.trim()} onClick={submit}>
+            {confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <label className="form">
+        {label}
+        <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), submit())} aria-label={label} />
+      </label>
+    </Modal>
+  );
+}
+
 export function IssueDialog({ issue }: { issue: Issue }) {
   const backend = getBackend();
   const live = useStore((s) => s.app?.issues.find((i) => i.id === issue.id)) ?? issue;

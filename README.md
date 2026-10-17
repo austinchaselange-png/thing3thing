@@ -22,6 +22,12 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 * **Things lists:** Inbox, Today (with This Evening), Upcoming (by day, then
   month), Anytime, Someday, Logbook, Trash; areas, projects with headings and
   progress pies, tags with a tag filter bar, Quick Find.
+* **Right-click everywhere:** to-dos, projects, headings, areas, tags, lists,
+  checklist items and empty space all have context menus (When submenu,
+  deadline, tags, move, duplicate, copy, rename, trash with Undo, …), fully
+  keyboard-navigable (Shift+F10). A blue **+** button in the corner adds
+  to-dos (right-click it for projects, areas and headings), and the selected
+  to-do shows When / Move / Trash buttons beside it.
 * **Editing:** inline to-do editor with notes, checklists, tags, deadlines,
   reminders and When (Today / This Evening / calendar / Someday, plus typed
   dates like "next fri"). Drag to-dos onto sidebar lists, projects or areas.
@@ -62,8 +68,10 @@ Connect your account in **Settings → Account**.
 | Today / This Evening | Ctrl+T / Ctrl+E | Anytime / Someday | Ctrl+R / Ctrl+O |
 | When… | Ctrl+S | Move… | Ctrl+Shift+M |
 | Deadline… | Ctrl+Shift+D | Tags… | Ctrl+Shift+T |
+| Duplicate | Ctrl+D | Context menu | Shift+F10 |
 | Go to list 1–7 | Ctrl+1 … Ctrl+7 | Sync now | F5 |
 | Settings | Ctrl+, | Quick Entry (global) | Ctrl+Alt+Space |
+| All shortcuts | Ctrl+/ | | |
 
 ## Develop
 
