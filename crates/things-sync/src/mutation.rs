@@ -167,12 +167,33 @@ pub enum Mutation {
         #[serde(default)]
         confirm: String,
     },
+    /// Sets the order of to-dos, projects, headings or areas (drag and drop).
+    /// The UI computes the values; only items whose position changes are sent.
+    Reorder {
+        key: OrderKey,
+        items: Vec<OrderItem>,
+    },
     /// Permanently deletes items that are in the Trash, with their contents.
     DeleteTasks {
         ids: Vec<String>,
         #[serde(default)]
         confirm: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OrderKey {
+    /// `ix`: lists, projects, headings and areas.
+    Index,
+    /// `ti`: the Today list.
+    TodayIndex,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderItem {
+    pub id: String,
+    pub value: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -616,6 +637,37 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
             plan.items.push(ops::tag_delete(id)?);
             plan.summary = format!("Delete tag “{}”", tag.title);
         }
+        Mutation::Reorder { key, items } => {
+            if items.is_empty() {
+                return invalid("nothing to reorder");
+            }
+            if items.len() > 2000 {
+                return invalid("reorder at most 2000 items at a time");
+            }
+            for it in items {
+                if let Some(t) = state.tasks.get(&it.id) {
+                    let mut u = TaskUpdate::new(&it.id, ctx.now);
+                    match key {
+                        OrderKey::Index => u.index(it.value),
+                        OrderKey::TodayIndex => u.today_index(it.value),
+                    };
+                    // Order is not a conflict-worthy edit: no base revision.
+                    update_item(&u, None, &it.id, &mut plan)?;
+                    if plan.summary.is_empty() {
+                        plan.summary = format!("Reorder “{}”", t.title);
+                    }
+                } else if state.areas.contains_key(&it.id) && *key == OrderKey::Index {
+                    plan.items.push(ops::area_reorder(&it.id, it.value)?);
+                } else {
+                    return Err(PlanError::NotFound(format!("item {}", it.id)));
+                }
+            }
+            if items.len() > 1 {
+                plan.summary = format!("Reorder {} items", items.len());
+            } else if plan.summary.is_empty() {
+                plan.summary = "Reorder area".into();
+            }
+        }
         Mutation::DeleteTasks { ids, confirm } => {
             if confirm != CONFIRM_PHRASE {
                 return Err(PlanError::ConfirmationRequired);
@@ -739,6 +791,31 @@ mod tests {
 
     fn parse(v: serde_json::Value) -> Mutation {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn reorder_writes_only_the_order_key() {
+        let f = fixture();
+        let m = parse(json!({"type":"reorder","key":"index","items":[{"id":f.task,"value":-50},{"id":f.area,"value":3}]}));
+        assert_eq!(m.class(), WriteClass::Normal);
+        let p = plan(&f.state, &m, &ctx()).unwrap();
+        assert_eq!(p.items.len(), 2);
+        assert_eq!(p.items[0].payload["ix"], -50);
+        assert!(p.items[0].payload.get("ti").is_none());
+        assert_eq!(p.items[1].kind, "Area3");
+        assert_eq!(p.items[1].payload, json!({"ix": 3}));
+        assert!(p.touched.iter().all(|t| t.base_rev.is_none()), "order changes never conflict");
+
+        let p = plan(&f.state, &parse(json!({"type":"reorder","key":"todayIndex","items":[{"id":f.task,"value":7}]})), &ctx()).unwrap();
+        assert_eq!(p.items[0].payload["ti"], 7);
+        assert!(p.items[0].payload.get("ix").is_none());
+
+        assert!(plan(&f.state, &parse(json!({"type":"reorder","key":"todayIndex","items":[{"id":f.area,"value":1}]})), &ctx()).is_err());
+        assert!(plan(&f.state, &parse(json!({"type":"reorder","key":"index","items":[]})), &ctx()).is_err());
+        assert!(matches!(
+            plan(&f.state, &parse(json!({"type":"reorder","key":"index","items":[{"id":"nope","value":1}]})), &ctx()),
+            Err(PlanError::NotFound(_))
+        ));
     }
 
     #[test]

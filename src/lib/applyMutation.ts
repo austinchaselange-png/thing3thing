@@ -221,6 +221,20 @@ export function applyMutation(snap: Snapshot, m: Mutation, opts: { today?: strin
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       tags = tags.filter((t) => t.id !== m.id);
       break;
+    case "reorder": {
+      if (!m.items.length) throw new MutationError("invalid", "Nothing to reorder.");
+      for (const it of m.items) {
+        const t = tasks.get(it.id);
+        if (t) {
+          tasks.set(t.id, { ...t, [m.key]: it.value, rev });
+        } else if (m.key === "index" && areas.some((a) => a.id === it.id)) {
+          areas = areas.map((a) => (a.id === it.id ? { ...a, index: it.value, rev } : a));
+        } else {
+          throw new MutationError("notFound", "This item no longer exists.");
+        }
+      }
+      break;
+    }
     case "deleteTasks": {
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       if (!m.ids.length) throw new MutationError("invalid", "Nothing to delete.");

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { newTaskDefaults } from "../actions";
+import { canDropInto, drag, dropHeadings, dropTasks, endDrag, HEADING_MIME, nudge, startDrag } from "../dnd";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { buildIndex, groupsFor, projectProgress, type Group } from "../lib/lists";
 import { parseQuickEntry } from "../lib/quickParse";
@@ -18,7 +19,7 @@ export function selectionTitle(sel: Selection, view: Snapshot): string {
 }
 
 /** Draft row for a new to-do. Created in Things Cloud only once it has a title. */
-export function NewTaskDraft({ section, onDone }: { section?: string; onDone: () => void }) {
+export function NewTaskDraft({ section, onDone, place }: { section?: string; onDone: () => void; place?: { group: Group; index: number } }) {
   const selection = useStore((s) => s.selection);
   const tags = useStore((s) => s.view?.tags) ?? [];
   const apply = useStore((s) => s.apply);
@@ -43,6 +44,7 @@ export function NewTaskDraft({ section, onDone }: { section?: string; onDone: ()
       const label = parsed.when.kind === "date" ? relativeLabel(parsed.when.date, todayYmd()) : { today: "Today", evening: "This Evening", someday: "Someday", anytime: "Anytime", inbox: "Inbox" }[parsed.when.kind];
       useStore.getState().toast(`Added “${parsed.title}” · ${label}`, "success");
     }
+    if (r?.created[0] && place) await dropTasks(selection, place.group, place.index, [r.created[0]]);
     if (r?.created[0] && !keepOpen) useStore.getState().selectTask(r.created[0]);
     if (!keepOpen) onDone();
   };
@@ -132,6 +134,8 @@ function ProjectHeader({ project }: { project: Task }) {
   );
 }
 
+const writableNow = () => useStore.getState().canWrite();
+
 /** The ••• pill beside a project, area or tag title. */
 function TitleMore({ label, items }: { label: string; items: (anchor: HTMLElement) => import("../store").MenuItem[] }) {
   return (
@@ -174,6 +178,14 @@ export function ListView() {
   const tagFilter = useStore((s) => s.tagFilter);
   const setTagFilter = useStore((s) => s.setTagFilter);
   const [draft, setDraft] = useState<string | null>(null);
+  /** The row a new to-do goes right after (Space). */
+  const [draftAfter, setDraftAfter] = useState<string | null>(null);
+  /** Where a dragged to-do would land: before group.tasks[index]. */
+  const [drop, setDrop] = useState<{ key: string; index: number } | null>(null);
+  /** Heading drag: insert before this heading (or "end"). */
+  const [headingDrop, setHeadingDrop] = useState<string | null>(null);
+  const [showLogged, setShowLogged] = useState(false);
+  const [hideLater, setHideLater] = useState(false);
   const today = todayYmd();
 
   // Things keeps just-completed items in place until you leave the list.
@@ -189,18 +201,87 @@ export function ListView() {
     const ids = new Set(groups.flatMap((g) => g.tasks.flatMap((t) => t.tagIds)));
     return view.tags.filter((t) => ids.has(t.id));
   }, [groups, view.tags]);
-  const filtered: Group[] = tagFilter ? groups.map((g) => ({ ...g, tasks: g.tasks.filter((t) => t.tagIds.includes(tagFilter)) })) : groups;
+  const laterCount = selection.kind === "project" ? groups.filter((g) => g.key !== "done").reduce((n, g) => n + g.tasks.filter((t) => t.startDate && t.startDate > today).length, 0) : 0;
+  const filtered: Group[] = groups
+    .map((g) => (tagFilter ? { ...g, tasks: g.tasks.filter((t) => t.tagIds.includes(tagFilter)) } : g))
+    .map((g) => (hideLater && g.key !== "done" ? { ...g, tasks: g.tasks.filter((t) => !(t.startDate && t.startDate > today)) } : g));
 
   // Global "new to-do" requests (Ctrl+N, toolbar, tray).
   useEffect(() => {
     const onNew = (e: Event) => {
-      const section = (e as CustomEvent<{ section?: string }>).detail?.section;
+      const detail = (e as CustomEvent<{ section?: string; after?: string }>).detail;
+      const afterGroup = detail?.after ? filtered.find((g) => g.key !== "done" && g.tasks.some((t) => t.id === detail.after)) : undefined;
+      if (afterGroup) {
+        setDraftAfter(detail!.after!);
+        setDraft(afterGroup.key);
+        return;
+      }
+      setDraftAfter(null);
+      const section = detail?.section;
       setDraft(section && filtered.some((g) => g.key === section) ? section : (filtered.find((g) => g.key !== "done")?.key ?? "default"));
     };
+    // Ctrl+↑/↓ (and with Alt: to the top/bottom) from the keyboard handler.
+    const onNudge = (e: Event) => {
+      const s = useStore.getState();
+      void nudge(selection, filtered, s.selectedIds, (e as CustomEvent<"up" | "down" | "top" | "bottom">).detail);
+    };
     window.addEventListener("tings3:new-task", onNew);
-    return () => window.removeEventListener("tings3:new-task", onNew);
+    window.addEventListener("tings3:nudge", onNudge);
+    return () => {
+      window.removeEventListener("tings3:new-task", onNew);
+      window.removeEventListener("tings3:nudge", onNudge);
+    };
   });
-  useEffect(() => setDraft(null), [selection]);
+  useEffect(() => {
+    setDraft(null);
+    setDraftAfter(null);
+    setShowLogged(false);
+    setHideLater(false);
+  }, [selection]);
+
+  /** Index in `g.tasks` the pointer points at: before or after the row under it. */
+  const dropIndex = (e: React.DragEvent, g: Group): number => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".task-row[data-task-id]");
+    if (!row) return (e.target as HTMLElement).closest(".group-title") ? 0 : g.tasks.length;
+    const i = g.tasks.findIndex((t) => t.id === row.dataset.taskId);
+    if (i < 0) return g.tasks.length;
+    const r = row.getBoundingClientRect();
+    return e.clientY > r.top + r.height / 2 ? i + 1 : i;
+  };
+  const onGroupDragOver = (e: React.DragEvent, g: Group) => {
+    if (drag.kind === "heading" && selection.kind === "project") {
+      if (g.key === "none" || g.key === "done") return;
+      e.preventDefault();
+      const onTitle = !!(e.target as HTMLElement).closest(".group-title");
+      const headings = filtered.filter((x) => x.key !== "none" && x.key !== "done").map((x) => x.key);
+      const before = onTitle ? g.key : (headings[headings.indexOf(g.key) + 1] ?? "end");
+      if (before !== headingDrop) setHeadingDrop(before);
+      return;
+    }
+    if (drag.kind !== "task") return;
+    const tasks = drag.ids.map((id) => real.get(id)).filter((t): t is NonNullable<typeof t> => !!t);
+    if (!canDropInto(selection, g, tasks)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const index = dropIndex(e, g);
+    if (drop?.key !== g.key || drop.index !== index) setDrop({ key: g.key, index });
+  };
+  const onGroupDrop = (e: React.DragEvent, g: Group) => {
+    e.preventDefault();
+    const ids = drag.ids;
+    if (drag.kind === "heading" && selection.kind === "project" && headingDrop) {
+      void dropHeadings(selection.id, ids, headingDrop === "end" ? null : headingDrop);
+    } else if (drag.kind === "task" && drop?.key === g.key) {
+      void dropTasks(selection, g, drop.index, ids);
+    }
+    setDrop(null);
+    setHeadingDrop(null);
+    endDrag();
+  };
+  const clearDrop = () => {
+    setDrop(null);
+    setHeadingDrop(null);
+  };
 
   const project = selection.kind === "project" ? view.tasks.find((t) => t.id === selection.id) : undefined;
   const meta = selection.kind === "list" ? LIST_META[selection.id] : null;
@@ -236,6 +317,8 @@ export function ListView() {
     <section
       className="list-view"
       aria-label={selectionTitle(selection, view)}
+      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && clearDrop()}
+      onDragEnd={() => (clearDrop(), endDrag())}
       onContextMenu={(e) => {
         const t = e.target as HTMLElement;
         if (t.closest("[data-task-id], input, textarea, button, .group-title, .tag-filter")) return;
@@ -278,11 +361,29 @@ export function ListView() {
         {filtered.map((g) => {
           if (!g.tasks.length && !(showUpcomingEmptyDays && g.subtitle) && draft !== g.key && !(g.title && selection.kind === "project" && g.key !== "done"))
             return null;
+          const isHeading = selection.kind === "project" && g.key !== "none" && g.key !== "done";
+          if (g.key === "done" && selection.kind === "project") {
+            return (
+              <div key={g.key} className="group logged">
+                <button className="logged-toggle" onClick={() => setShowLogged((v) => !v)} aria-expanded={showLogged}>
+                  {showLogged ? "Hide logged items" : `Show ${g.tasks.length} logged item${g.tasks.length === 1 ? "" : "s"}`}
+                </button>
+                {showLogged && g.tasks.map((t) => <TaskRow key={t.id} task={real.get(t.id) ?? t} ctx={ctx} />)}
+              </div>
+            );
+          }
           return (
-            <div key={g.key} className={`group${g.key === "evening" ? " evening" : ""}${g.subtitle ? " day" : ""}`}>
+            <div
+              key={g.key}
+              className={`group${g.key === "evening" ? " evening" : ""}${g.subtitle ? " day" : ""}${headingDrop === g.key ? " heading-drop" : ""}`}
+              onDragOver={(e) => onGroupDragOver(e, g)}
+              onDrop={(e) => onGroupDrop(e, g)}
+            >
               {g.title && (
                 <div
                   className="group-title"
+                  draggable={isHeading && writableNow()}
+                  onDragStart={(e) => isHeading && startDrag("heading", [g.key], e, HEADING_MIME)}
                   onContextMenu={(e) => {
                     const heading = selection.kind === "project" ? view.tasks.find((t) => t.id === g.key && t.type === "heading") : undefined;
                     if (!heading) return;
@@ -310,14 +411,35 @@ export function ListView() {
                   )}
                 </div>
               )}
-              {draft === g.key && <NewTaskDraft section={g.key} onDone={() => setDraft(null)} />}
-              {g.tasks.map((t) => (
-                <TaskRow key={t.id} task={real.get(t.id) ?? t} ctx={ctx} />
+              {draft === g.key && !(draftAfter && g.tasks.some((t) => t.id === draftAfter)) && <NewTaskDraft section={g.key} onDone={() => setDraft(null)} />}
+              {g.tasks.map((t, i) => (
+                <Fragment key={t.id}>
+                  {drop?.key === g.key && drop.index === i && <div className="drop-line" aria-hidden="true" />}
+                  <TaskRow task={real.get(t.id) ?? t} ctx={ctx} />
+                  {draft === g.key && draftAfter === t.id && (
+                    <NewTaskDraft
+                      section={g.key}
+                      place={{ group: g, index: i + 1 }}
+                      onDone={() => {
+                        setDraft(null);
+                        setDraftAfter(null);
+                      }}
+                    />
+                  )}
+                </Fragment>
               ))}
+              {drop?.key === g.key && drop.index === g.tasks.length && <div className="drop-line" aria-hidden="true" />}
+              {!g.tasks.length && drop?.key !== g.key && drag.kind === "task" && <div className="drop-zone" aria-hidden="true" />}
             </div>
           );
         })}
+        {headingDrop === "end" && <div className="drop-line heading" aria-hidden="true" />}
         {draft === "default" && <NewTaskDraft onDone={() => setDraft(null)} />}
+        {laterCount > 0 && (
+          <button className="logged-toggle later" onClick={() => setHideLater((v) => !v)}>
+            {hideLater ? `Show ${laterCount} later item${laterCount === 1 ? "" : "s"}` : "Hide later items"}
+          </button>
+        )}
         {isEmpty && draft === null && !showUpcomingEmptyDays && <EmptyState sel={selection} />}
       </div>
     </section>

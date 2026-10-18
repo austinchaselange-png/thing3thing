@@ -210,6 +210,14 @@ impl TaskUpdate {
         let one = |o: Option<&str>| json!(o.map(|s| vec![s.to_string()]).unwrap_or_default());
         self.set("ar", one(area)).set("pr", one(project)).set("agr", one(heading))
     }
+    /// `ix`: position among siblings (lists, projects, headings).
+    pub fn index(&mut self, ix: i64) -> &mut Self {
+        self.set("ix", json!(ix))
+    }
+    /// `ti`: position in Today.
+    pub fn today_index(&mut self, ti: i64) -> &mut Self {
+        self.set("ti", json!(ti))
+    }
     pub fn tags(&mut self, tags: &[String]) -> &mut Self {
         self.set("tg", json!(tags))
     }
@@ -298,6 +306,12 @@ pub fn area_rename(area_id: &str, title: &str) -> Result<Item, OpError> {
         return Err(OpError::Invalid("area name must not be empty".into()));
     }
     Ok(Item::new(area_id, kind::AREA, action::MODIFY, json!({ "tt": title.trim() })))
+}
+
+/// Moves an area in the sidebar.
+pub fn area_reorder(area_id: &str, index: i64) -> Result<Item, OpError> {
+    check_ids([&area_id.to_string()])?;
+    Ok(Item::new(area_id, kind::AREA, action::MODIFY, json!({ "ix": index })))
 }
 
 pub fn area_delete(area_id: &str) -> Result<Item, OpError> {

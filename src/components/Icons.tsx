@@ -124,6 +124,13 @@ export const ChecklistIcon = (p: P) => (
   </Svg>
 );
 
+export const SidebarIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 3v10" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
 export const MoreIcon = (p: P) => (
   <Svg {...p}>
     <circle cx="3.5" cy="8" r="1.25" fill="currentColor" />

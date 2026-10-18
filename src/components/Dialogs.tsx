@@ -489,11 +489,13 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
 }
 
 const SHORTCUTS: [string, [string, string][]][] = [
-  ["Create", [["New to-do", "Ctrl+N"], ["Quick Entry (from any app)", "Ctrl+Alt+Space"], ["Duplicate to-do", "Ctrl+D"]]],
-  ["Selected to-do", [["Edit / open", "Enter"], ["Complete", "Ctrl+K"], ["Context menu", "Shift+F10"], ["Move to Trash", "Delete"]]],
+  ["Create", [["New to-do", "Ctrl+N"], ["New to-do below the selection", "Space"], ["Paste lines as to-dos", "Ctrl+V"], ["Quick Entry (from any app)", "Ctrl+Alt+Space"], ["Duplicate to-do", "Ctrl+D"]]],
+  ["Selected to-do", [["Edit / open", "Enter"], ["Complete", "Ctrl+K"], ["Cancel", "Ctrl+Alt+K"], ["Move up / down", "Ctrl+↑ / ↓"], ["Move to top / bottom", "Ctrl+Alt+↑ / ↓"], ["Copy as text", "Ctrl+C"], ["Context menu", "Shift+F10"], ["Move to Trash", "Delete"]]],
+  ["Select", [["Add or remove a to-do", "Ctrl+Click"], ["Select a range", "Shift+Click / Shift+↑↓"], ["Select all", "Ctrl+A"]]],
+  ["Edit", [["Undo", "Ctrl+Z"], ["Redo", "Ctrl+Shift+Z"]]],
   ["When", [["Today", "Ctrl+T"], ["This Evening", "Ctrl+E"], ["Anytime", "Ctrl+R"], ["Someday", "Ctrl+O"], ["Choose date…", "Ctrl+S"]]],
   ["Organise", [["Move…", "Ctrl+Shift+M"], ["Tags…", "Ctrl+Shift+T"], ["Deadline…", "Ctrl+Shift+D"]]],
-  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
+  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Type Travel", "Just start typing"], ["Hide sidebar", "Ctrl+Alt+S"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
 ];
 
 export function ShortcutsDialog() {
@@ -601,9 +603,9 @@ export function IssueDialog({ issue }: { issue: Issue }) {
 
 type FindResult = { key: string; label: string; icon: ReactNode; sub?: string; go: () => void };
 
-export function QuickFind() {
+export function QuickFind({ initial = "" }: { initial?: string }) {
   const view = useStore((s) => s.view)!;
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initial);
   const [active, setActive] = useState(0);
   const ix = useMemo(() => buildIndex(view), [view]);
   const inputRef = useRef<HTMLInputElement>(null);

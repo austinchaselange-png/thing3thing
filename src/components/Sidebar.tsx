@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { bulkMove, bulkSchedule, bulkTrash } from "../actions";
+import { drag, endDrag, reorderSidebar, startDrag, TASK_MIME } from "../dnd";
 import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
@@ -42,33 +43,99 @@ function menuFor(sel: Selection) {
   return p ? taskMenu(p) : [];
 }
 
-function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; icon: ReactNode; label: string; count?: number; badge?: number; strong?: boolean }) {
+/** Sidebar drag: projects reorder among their siblings, areas among areas. */
+interface Reorderable {
+  kind: "project" | "area";
+  /** Projects: the area they're in (null for loose projects). */
+  areaId?: string | null;
+  siblings: () => { id: string; index: number }[];
+}
+
+function NavItem({
+  sel,
+  icon,
+  label,
+  count,
+  badge,
+  strong,
+  reorder,
+}: {
+  sel: Selection;
+  icon: ReactNode;
+  label: string;
+  count?: number;
+  badge?: number;
+  strong?: boolean;
+  reorder?: Reorderable;
+}) {
   const active = useStore((s) => sameSel(s.selection, sel));
   const [over, setOver] = useState(false);
+  const [line, setLine] = useState<"above" | "below" | null>(null);
   const action = dropAction(sel);
+  /** A project dragged onto a project, or an area onto an area: reorder instead of moving into it. */
+  const reorderTarget = () => !!reorder && drag.kind === reorder.kind && !drag.ids.includes(sel.id);
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const ids = e.dataTransfer.getData("application/x-tings3-task").split("\n").filter(Boolean);
+    if (reorder && reorderTarget()) {
+      const ids = [...drag.ids];
+      const where = line;
+      setLine(null);
+      endDrag();
+      void (async () => {
+        const v = useStore.getState().view;
+        // A project dropped among another area's projects moves into that area first.
+        if (reorder.kind === "project") {
+          const moving = (v?.tasks ?? []).filter((t) => ids.includes(t.id) && (t.areaId ?? null) !== (reorder.areaId ?? null));
+          if (moving.length) await bulkMove(moving, { areaId: reorder.areaId ?? null });
+        }
+        const sibs = reorder.siblings();
+        const i = sibs.findIndex((s) => s.id === sel.id);
+        const before = where === "below" ? (sibs[i + 1]?.id ?? null) : sel.id;
+        const fresh = useStore.getState().view;
+        const indexOf = (id: string) => fresh?.tasks.find((t) => t.id === id)?.index ?? fresh?.areas.find((a) => a.id === id)?.index ?? 0;
+        const all = [...sibs.filter((s) => !ids.includes(s.id)), ...ids.map((id) => ({ id, index: indexOf(id) }))];
+        await reorderSidebar(reorder.kind, ids, all, before);
+      })();
+      return;
+    }
+    setLine(null);
+    const ids = e.dataTransfer.getData(TASK_MIME).split("\n").filter(Boolean);
     const byId = new Map((useStore.getState().view?.tasks ?? []).map((t) => [t.id, t]));
     const tasks = ids.map((id) => byId.get(id)).filter((t): t is Task => !!t);
     if (tasks.length && action) action(tasks);
   };
   return (
     <button
-      className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}`}
+      className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}${line ? ` line-${line}` : ""}`}
       onClick={() => useStore.getState().select(sel)}
       onContextMenu={(e) => {
         e.preventDefault();
         useStore.getState().openMenu(e, menuFor(sel));
       }}
+      draggable={!!reorder && useStore.getState().canWrite()}
+      onDragStart={(e) => reorder && startDrag(reorder.kind, [sel.id], e, reorder.kind === "project" ? TASK_MIME : "application/x-tings3-area")}
+      onDragEnd={() => {
+        endDrag();
+        setLine(null);
+      }}
       onDragOver={(e) => {
-        if (action && e.dataTransfer.types.includes("application/x-tings3-task")) {
+        if (reorderTarget()) {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          setLine(e.clientY > r.top + r.height / 2 ? "below" : "above");
+          return;
+        }
+        if (drag.kind === "area") return;
+        if (action && e.dataTransfer.types.includes(TASK_MIME)) {
           e.preventDefault();
           setOver(true);
         }
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={() => {
+        setOver(false);
+        setLine(null);
+      }}
       onDrop={onDrop}
       aria-current={active ? "page" : undefined}
     >
@@ -157,17 +224,19 @@ export function Sidebar() {
     return { inbox: countFor("inbox", view, ix, today), today: countFor("today", view, ix, today), overdue };
   }, [view, ix, today]);
 
-  const project = (p: Task) => {
+  const project = (p: Task, _i: number, siblings: Task[]) => {
     const pr = projectProgress(p.id, view);
     return (
       <NavItem
         key={p.id}
         sel={{ kind: "project", id: p.id }}
-        icon={<ProgressPie done={pr.done} total={pr.total} size={15} color="var(--c-project)" />}
+        icon={<ProgressPie done={pr.done} total={pr.total} size={15} color="var(--c-project)" dashed={p.start === "someday" && !p.startDate} />}
         label={p.title || "Untitled Project"}
+        reorder={{ kind: "project", areaId: p.areaId && view.areas.some((a) => a.id === p.areaId) ? p.areaId : null, siblings: () => siblings.map((s) => ({ id: s.id, index: s.index })) }}
       />
     );
   };
+  const areaSiblings = () => tree.areas.map(({ area }) => ({ id: area.id, index: area.index }));
 
   return (
     <nav className="sidebar" aria-label="Lists">
@@ -198,7 +267,13 @@ export function Sidebar() {
         {tree.looseProjects.length > 0 && <div className="nav-group">{tree.looseProjects.map(project)}</div>}
         {tree.areas.map(({ area, projects }) => (
           <div className="nav-group" key={area.id}>
-            <NavItem sel={{ kind: "area", id: area.id }} icon={<AreaIcon style={{ color: "var(--c-area)" }} />} label={area.title || "Untitled Area"} strong />
+            <NavItem
+              sel={{ kind: "area", id: area.id }}
+              icon={<AreaIcon style={{ color: "var(--c-area)" }} />}
+              label={area.title || "Untitled Area"}
+              strong
+              reorder={{ kind: "area", siblings: areaSiblings }}
+            />
             {projects.map(project)}
           </div>
         ))}

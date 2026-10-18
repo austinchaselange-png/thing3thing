@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as React
 import { deletePermanently, moveTo, schedule, toggleComplete, trash } from "../actions";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
+import { endDrag, startDrag } from "../dnd";
 import { useMulti, useStore } from "../store";
 import type { ChecklistItem, Tag, Task } from "../types";
 import {
@@ -176,9 +177,9 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
         // Dragging a selected row carries the whole selection.
         const s = useStore.getState();
         const ids = selected && s.selectedIds.length > 1 ? s.selectedIds : [task.id];
-        e.dataTransfer.setData("application/x-tings3-task", ids.join("\n"));
-        e.dataTransfer.effectAllowed = "move";
+        startDrag("task", ids, e);
       }}
+      onDragEnd={endDrag}
       onMouseDown={(e) => e.shiftKey && e.preventDefault() /* no text selection on Shift-click */}
       onClick={(e) => clickRow(e, task)}
       onDoubleClick={(e) => {

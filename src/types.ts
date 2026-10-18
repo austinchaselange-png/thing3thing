@@ -118,6 +118,8 @@ export type Mutation =
   | { type: "renameTag"; id: string; baseRev: number | null; title: string }
   | { type: "deleteTag"; id: string; confirm: string }
   | { type: "stopRepeating"; id: string; confirm: string }
+  /** Sets the order of to-dos, projects, headings (index or Today's todayIndex) or areas (index). */
+  | { type: "reorder"; key: "index" | "todayIndex"; items: { id: string; value: number }[] }
   /** Permanently deletes to-dos, projects and headings that are in the Trash (with their contents). */
   | { type: "deleteTasks"; ids: string[]; confirm: string };
 

@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { getBackend } from "./backend";
 import { applyMutation } from "./lib/applyMutation";
+import { inverseOf, type UndoStep } from "./lib/undo";
 import type { AppState, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
 
 export type Dialog =
   | { kind: "settings"; tab?: "account" | "sync" | "general" | "about" }
-  | { kind: "quickFind" }
+  | { kind: "quickFind"; initial?: string }
   | { kind: "conflict"; mutation: Mutation; error: WriteError }
   | { kind: "confirm"; title: string; body: string; mutation: Mutation; phrase: boolean }
   | { kind: "issue"; issue: Issue }
@@ -103,7 +104,13 @@ interface Store {
   openDialog(d: Dialog | null): void;
   toast(text: string, tone?: Toast["tone"], action?: Toast["action"]): void;
   dismissToast(id: number): void;
-  apply(m: Mutation, opts?: { force?: boolean; quiet?: boolean }): Promise<WriteReport | null>;
+  apply(m: Mutation, opts?: { force?: boolean; quiet?: boolean; record?: boolean }): Promise<WriteReport | null>;
+  undoStack: UndoStep[];
+  redoStack: UndoStep[];
+  undo(): Promise<void>;
+  redo(): Promise<void>;
+  sidebarHidden: boolean;
+  toggleSidebar(): void;
   canWrite(): boolean;
 }
 
@@ -143,6 +150,31 @@ export const useStore = create<Store>((set, get) => ({
   toasts: [],
   menu: null,
   picker: null,
+  undoStack: [],
+  redoStack: [],
+  sidebarHidden: readPref("tings3.sidebarHidden") === "1",
+
+  toggleSidebar() {
+    const sidebarHidden = !get().sidebarHidden;
+    writePref("tings3.sidebarHidden", sidebarHidden ? "1" : "0");
+    set({ sidebarHidden });
+  },
+
+  async undo() {
+    const step = get().undoStack.at(-1);
+    if (!step) return;
+    set((s) => ({ undoStack: s.undoStack.slice(0, -1) }));
+    for (const m of step.undo) if (!(await get().apply(m, { record: false }))) return;
+    set((s) => ({ redoStack: [...s.redoStack, step] }));
+  },
+
+  async redo() {
+    const step = get().redoStack.at(-1);
+    if (!step) return;
+    set((s) => ({ redoStack: s.redoStack.slice(0, -1) }));
+    for (const m of step.redo) if (!(await get().apply(m, { record: false }))) return;
+    set((s) => ({ undoStack: [...s.undoStack, { ...step, at: -1 }] }));
+  },
 
   openMenu(at, items) {
     if (!items.length) return;
@@ -243,6 +275,10 @@ export const useStore = create<Store>((set, get) => ({
       get().toast("Things 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
       return null;
     }
+    // Undo: what puts things back, from the state before this change.
+    const record = opts.record !== false;
+    const inverse = record && get().view ? inverseOf(mutation, get().view!) : null;
+    const action = actionSeq;
     const pending: Pending = { id: ++seq, mutation };
     if (mutation.type === "setStatus" && mutation.status !== "open") {
       set((s) => ({ recentlyCompleted: [...s.recentlyCompleted, mutation.id] }));
@@ -259,6 +295,10 @@ export const useStore = create<Store>((set, get) => ({
     try {
       const report = await getBackend().apply(mutation, { force: opts.force });
       done();
+      if (record) {
+        const undo = mutation.type === "createTask" && report.created[0] ? [{ type: "setTrashed", id: report.created[0], baseRev: null, trashed: true } as Mutation] : inverse;
+        if (undo) pushUndo(undo, mutation, action);
+      }
       if (report.reconciled) get().toast("The connection dropped, but Things 3 confirmed the change was saved.", "success");
       return report;
     } catch (e) {
@@ -269,6 +309,46 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 }));
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/**
+ * Each key press, click or drop is one user action; every change it causes
+ * (a bulk edit, a drag that moves then reorders) becomes one Undo step.
+ */
+let actionSeq = 0;
+if (typeof window !== "undefined") {
+  for (const type of ["keydown", "pointerdown", "drop"]) window.addEventListener(type, () => void actionSeq++, true);
+}
+
+/** Records an undo step, merged with the previous one when the same user action caused both. */
+function pushUndo(undo: Mutation[], original: Mutation, action: number) {
+  const now = action;
+  // Redo re-applies the change as it is now, without the old conflict check.
+  const redo = ("baseRev" in original ? { ...original, baseRev: null } : original) as Mutation;
+  useStore.setState((s) => {
+    const last = s.undoStack.at(-1);
+    const stack =
+      last && last.at === now
+        ? [...s.undoStack.slice(0, -1), { at: now, undo: [...undo, ...last.undo], redo: [...last.redo, redo] }]
+        : [...s.undoStack, { at: now, undo, redo: [redo] }].slice(-100);
+    return { undoStack: stack, redoStack: [] };
+  });
+}
 
 function handleWriteError(mutation: Mutation, e: unknown) {
   const s = useStore.getState();

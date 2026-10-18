@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, deletePermanently, pasteAsTodos } from "./actions";
+import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, copyText, deletePermanently, pasteAsTodos, tasksAsText } from "./actions";
 import { getBackend } from "./backend";
 import { ContextMenu } from "./components/ContextMenu";
 import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
-import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, TrashIcon, UndoIcon } from "./components/Icons";
+import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, SidebarIcon, TrashIcon, UndoIcon } from "./components/Icons";
 import { bulkMenu, bulkMoreMenu, newItemsMenu, taskMenu } from "./components/menus";
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
@@ -34,6 +34,7 @@ export function App() {
   const selection = useStore((s) => s.selection);
   const view = useStore((s) => s.view);
   const picker = useStore((s) => s.picker);
+  const sidebarHidden = useStore((s) => s.sidebarHidden);
   const setPicker = useStore((s) => s.openPicker);
   const [scrolled, setScrolled] = useState(false);
   // A picker acts on one to-do, or on every selected one.
@@ -67,9 +68,28 @@ export function App() {
       if (ctrl && (key === "/" || key === "?")) return (e.preventDefault(), s.openDialog({ kind: "shortcuts" }));
       if (ctrl && key === "n") return (e.preventDefault(), window.dispatchEvent(new Event("tings3:new-task")));
       if (e.key === "F5") return (e.preventDefault(), void getBackend().syncNow());
+      if (ctrl && e.altKey && key === "s") return (e.preventDefault(), s.toggleSidebar());
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
 
+      // Undo / Redo (text fields keep their own).
+      if (ctrl && !e.altKey && key === "z") return (e.preventDefault(), void (e.shiftKey ? s.redo() : s.undo()));
+      if (ctrl && key === "y") return (e.preventDefault(), void s.redo());
+      // Ctrl+↑/↓ moves the selection; with Alt, to the top or bottom.
+      if (ctrl && (e.key === "ArrowUp" || e.key === "ArrowDown") && targets.length) {
+        e.preventDefault();
+        const dir = e.key === "ArrowUp" ? (e.altKey ? "top" : "up") : e.altKey ? "bottom" : "down";
+        return void window.dispatchEvent(new CustomEvent("tings3:nudge", { detail: dir }));
+      }
+      if (ctrl && key === "c" && targets.length && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        return void copyText(tasksAsText(targets), targets.length === 1 ? "Copied" : `Copied ${targets.length} to-dos`);
+      }
+      // Space: a new to-do right below the selection, like Things.
+      if (e.key === " " && !ctrl && !e.altKey && !s.selectMode) {
+        e.preventDefault();
+        return void window.dispatchEvent(new CustomEvent("tings3:new-task", { detail: { after: s.selectedId ?? undefined } }));
+      }
       if (ctrl && key === "v" && !e.shiftKey) {
         const sel = s.selection;
         if (sel.kind === "list" && (sel.id === "logbook" || sel.id === "trash" || sel.id === "upcoming")) return;
@@ -110,6 +130,7 @@ export function App() {
         if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) return (e.preventDefault(), anchor && s.openMenu(anchor, bulkMenu(targets, anchor)));
         if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash(targets));
         if (ctrl && key === "d") return (e.preventDefault(), void bulkDuplicate(targets));
+        if (ctrl && e.altKey && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, "canceled"));
         if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, targets.some((t) => t.status === "open") ? "completed" : "open"));
         if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule(targets, { kind: "today" }));
         if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule(targets, { kind: "evening" }));
@@ -120,6 +141,13 @@ export function App() {
         if (ctrl && e.shiftKey && key === "d") return openMany("deadline");
         if (ctrl && e.shiftKey && key === "t") return openMany("tags");
         return;
+      }
+      // Type Travel: start typing anywhere to jump to a list, project or to-do.
+      if (!task || !ctrl) {
+        if (e.key.length === 1 && /\S/.test(e.key) && !ctrl && !e.altKey) {
+          e.preventDefault();
+          return s.openDialog({ kind: "quickFind", initial: e.key });
+        }
       }
       if (!task) return;
       if (e.key === "Enter") {
@@ -136,6 +164,7 @@ export function App() {
       }
       if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash([task]));
       if (ctrl && key === "d" && task.type === "task" && s.canWrite()) return (e.preventDefault(), void bulkDuplicate([task]));
+      if (ctrl && e.altKey && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "canceled" ? "open" : "canceled"));
       if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "open" ? "completed" : "open"));
       if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule([task], { kind: "today" }));
       if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule([task], { kind: "evening" }));
@@ -181,10 +210,13 @@ export function App() {
   const writable = app.canWrite;
 
   return (
-    <div className="app">
-      <Sidebar />
+    <div className={`app${sidebarHidden ? " no-sidebar" : ""}`}>
+      {!sidebarHidden && <Sidebar />}
       <main className="main" onScrollCapture={(e) => (e.target as HTMLElement).classList?.contains("list-view") && setScrolled((e.target as HTMLElement).scrollTop > 44)}>
         <header className={`topbar${scrolled ? " scrolled" : ""}`} data-tauri-drag-region>
+          <button className="icon-btn sidebar-toggle" title={sidebarHidden ? "Show Sidebar (Ctrl+Alt+S)" : "Hide Sidebar (Ctrl+Alt+S)"} aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"} onClick={() => useStore.getState().toggleSidebar()}>
+            <SidebarIcon />
+          </button>
           <span className="tb-title" data-tauri-drag-region>
             {app.account.mode !== "signedOut" && selectionTitle(selection, view)}
           </span>
@@ -231,7 +263,7 @@ export function App() {
       )}
 
       {dialog?.kind === "settings" && <SettingsDialog tab={dialog.tab} />}
-      {dialog?.kind === "quickFind" && <QuickFind />}
+      {dialog?.kind === "quickFind" && <QuickFind initial={dialog.initial} />}
       {dialog?.kind === "writeOptIn" && <WriteOptInDialog />}
       {dialog?.kind === "destructiveOptIn" && <WriteOptInDialog destructive />}
       {dialog?.kind === "conflict" && <ConflictDialog mutation={dialog.mutation} fields={dialog.error.fields ?? []} />}

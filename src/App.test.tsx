@@ -258,6 +258,89 @@ describe("App", () => {
     await waitFor(async () => expect((await taskByTitle(backend, "Old idea")).trashed).toBe(false));
   });
 
+  const rowOrder = () => [...document.querySelectorAll<HTMLElement>(".groups .task-row")].map((r) => r.querySelector(".task-title")!.textContent);
+
+  it("Ctrl+↓ / Ctrl+Alt+↑ reorder the selection, and Ctrl+Z puts it back", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const before = rowOrder();
+    const first = before[0]!;
+    await userEvent.click(inList(first));
+    await userEvent.keyboard("{Control>}{ArrowDown}{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).toBe(first));
+    await userEvent.keyboard("{Control>}{Alt>}{ArrowDown}{/Alt}{/Control}");
+    await waitFor(() => expect(rowOrder().indexOf(first)).toBe(before.indexOf("Send wireframes to Priya")));
+    await userEvent.keyboard("{Control>}z{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).toBe(first));
+    await userEvent.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).not.toBe(first));
+  });
+
+  it("drag a to-do between others to reorder it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const before = rowOrder();
+    const last = before[before.indexOf("Send wireframes to Priya")]!;
+    const dt = { data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" };
+    const src = inList(last).closest(".task-row")!;
+    const target = inList(before[0]!).closest(".task-row")!;
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    fireEvent.dragOver(target, { dataTransfer: dt, clientY: -5 }); // above the first row's middle
+    expect(document.querySelector(".drop-line")).toBeInTheDocument();
+    fireEvent.drop(target, { dataTransfer: dt, clientY: -5 });
+    await waitFor(() => expect(rowOrder()[0]).toBe(last));
+    expect(document.querySelector(".drop-line")).not.toBeInTheDocument();
+  });
+
+  it("dragging into This Evening schedules it for the evening", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const dt = { data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(inList("Go for a run").closest(".task-row")!, { dataTransfer: dt });
+    const evening = inList("Water the plants").closest(".task-row")!;
+    fireEvent.dragOver(evening, { dataTransfer: dt, clientY: 10 });
+    fireEvent.drop(evening, { dataTransfer: dt, clientY: 10 });
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).evening).toBe(true));
+  });
+
+  it("Space adds a new to-do right below the selected one", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Pick up dry cleaning"));
+    await userEvent.keyboard(" ");
+    const input = await screen.findByRole("textbox", { name: "New to-do title" });
+    expect(input.closest(".task-editor")!.previousElementSibling).toHaveTextContent("Pick up dry cleaning");
+    await userEvent.type(input, "Buy hangers{Enter}");
+    await waitFor(() => {
+      const order = rowOrder();
+      expect(order[order.indexOf("Pick up dry cleaning") + 1]).toBe("Buy hangers");
+    });
+  });
+
+  it("Ctrl+Z undoes completing a to-do", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).status).toBe("completed"));
+    await userEvent.keyboard("{Control>}z{/Control}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).status).toBe("open"));
+  });
+
+  it("projects hide logged items behind a toggle, and typing opens Type Travel", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByText("Trip to Lisbon"));
+    await screen.findByDisplayValue("Trip to Lisbon");
+    expect(screen.queryByText("Book train to Porto")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show 1 logged item" }));
+    expect(screen.getByText("Book train to Porto")).toBeInTheDocument();
+    (document.activeElement as HTMLElement)?.blur();
+    await userEvent.keyboard("w");
+    const find = await screen.findByRole("dialog", { name: "Quick Find" });
+    expect(within(find).getByRole("textbox")).toHaveValue("w");
+  });
+
   it("Select mode from the list ••• menu, with Done to leave it", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Today" });
