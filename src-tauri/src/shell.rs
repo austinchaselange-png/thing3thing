@@ -20,6 +20,9 @@ pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::
         .inner_size(1120.0, 740.0)
         .min_inner_size(720.0, 480.0)
         .decorations(false) // the UI draws its own title bar and traffic lights
+        // Tauri's file-drop handler swallows HTML5 drag and drop on Windows,
+        // which the UI needs for reordering to-dos.
+        .disable_drag_drop_handler()
         .shadow(true)
         .center()
         .visible(visible);
