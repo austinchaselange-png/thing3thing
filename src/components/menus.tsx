@@ -5,6 +5,8 @@ import {
   bulkSetStatus,
   bulkTrash,
   copyText,
+  deletePermanently,
+  emptyTrash,
   duplicate,
   duplicateProject,
   moveTo,
@@ -119,7 +121,8 @@ export function taskMenu(t: Task): MenuItem[] {
   }
   if (t.trashed) {
     items.push(w({ label: "Put Back", icon: <UndoIcon />, onSelect: () => void trash(t, false) }));
-    items.push(SEP as W, { label: "Show in Trash", icon: <TrashIcon />, onSelect: () => reveal(t) });
+    if (s.selection.kind !== "list" || s.selection.id !== "trash") items.push(SEP as W, { label: "Show in Trash", icon: <TrashIcon />, onSelect: () => reveal(t) });
+    items.push(SEP as W, w({ label: "Delete Permanently…", icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => deletePermanently([t]) }));
     return guard(items);
   }
   items.push(SEP as W);
@@ -313,13 +316,8 @@ export function listMenu(id: ListId): MenuItem[] {
     items.push(w({ label: "New To-Do Here", icon: <PlusIcon />, onSelect: () => (s.select({ kind: "list", id }), setTimeout(() => window.dispatchEvent(new Event("tings3:new-task")), 0)) }));
   }
   if (id === "trash") {
-    const n = (s.view?.tasks ?? []).filter((t) => t.trashed && t.type !== "heading").length;
-    items.push(SEP, {
-      label: "Empty Trash",
-      icon: <TrashIcon />,
-      disabled: true,
-      hint: n ? "Permanently deleting to-dos isn't supported yet — empty the Trash in Things on your iPhone" : "The Trash is empty",
-    });
+    const n = (s.view?.tasks ?? []).filter((t) => t.trashed).length;
+    items.push(SEP, w({ label: "Empty Trash…", icon: <TrashIcon />, danger: true, disabled: !n, hint: n ? undefined : "The Trash is empty", onSelect: emptyTrash }));
   }
   return guard(items);
 }
@@ -327,6 +325,15 @@ export function listMenu(id: ListId): MenuItem[] {
 /** Right-click on a multi-selection: everything that applies to all of them. */
 export function bulkMenu(tasks: Task[], anchor?: HTMLElement | null): MenuItem[] {
   const n = tasks.length;
+  if (tasks.every((t) => t.trashed)) {
+    return guard([
+      { label: `${n} Selected`, disabled: true },
+      SEP,
+      w({ label: "Put Back", icon: <UndoIcon />, onSelect: () => void bulkTrash(tasks, false) }),
+      SEP,
+      w({ label: `Delete ${n} Permanently…`, icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => deletePermanently(tasks) }),
+    ]);
+  }
   const anyOpen = tasks.some((t) => t.status === "open");
   const items: W[] = [{ label: `${n} Selected`, disabled: true } as W, SEP as W];
   items.push(
@@ -444,5 +451,9 @@ export function listViewMenu(sel: Selection, title: string, usedTags: Tag[], vis
   ];
   if (canAdd) items.push(w({ label: "Paste", icon: <PasteIcon />, shortcut: "Ctrl+V", hint: "Each line on the clipboard becomes a to-do", onSelect: () => void pasteAsTodos(sel) }));
   items.push({ label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(title, tasksAsText(visible(), title)) });
+  if (sel.kind === "list" && sel.id === "trash") {
+    const n = (s.view?.tasks ?? []).filter((t) => t.trashed).length;
+    items.push(SEP, w({ label: "Empty Trash…", icon: <TrashIcon />, danger: true, disabled: !n, hint: n ? undefined : "The Trash is empty", onSelect: emptyTrash }));
+  }
   return guard(items);
 }

@@ -167,6 +167,12 @@ pub enum Mutation {
         #[serde(default)]
         confirm: String,
     },
+    /// Permanently deletes items that are in the Trash, with their contents.
+    DeleteTasks {
+        ids: Vec<String>,
+        #[serde(default)]
+        confirm: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -183,7 +189,8 @@ impl Mutation {
             Mutation::DeleteChecklistItem { .. }
             | Mutation::DeleteArea { .. }
             | Mutation::DeleteTag { .. }
-            | Mutation::StopRepeating { .. } => WriteClass::Destructive,
+            | Mutation::StopRepeating { .. }
+            | Mutation::DeleteTasks { .. } => WriteClass::Destructive,
             _ => WriteClass::Normal,
         }
     }
@@ -609,6 +616,63 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
             plan.items.push(ops::tag_delete(id)?);
             plan.summary = format!("Delete tag “{}”", tag.title);
         }
+        Mutation::DeleteTasks { ids, confirm } => {
+            if confirm != CONFIRM_PHRASE {
+                return Err(PlanError::ConfirmationRequired);
+            }
+            if ids.is_empty() {
+                return invalid("nothing to delete");
+            }
+            if ids.len() > 1000 {
+                return invalid("delete at most 1000 items at a time");
+            }
+            // In the Trash itself, or inside a trashed project or heading.
+            let in_trash = |t: &Task| {
+                t.trashed
+                    || t.headings.iter().chain(t.projects.iter()).any(|p| state.tasks.get(p).is_some_and(|p| p.trashed))
+                    || state.project_of(t).and_then(|p| state.tasks.get(&p)).is_some_and(|p| p.trashed)
+            };
+            let mut doomed: Vec<String> = Vec::new();
+            let add = |id: &str, doomed: &mut Vec<String>| {
+                if !doomed.iter().any(|d| d == id) {
+                    doomed.push(id.to_string());
+                }
+            };
+            for id in ids {
+                let t = task(state, id)?;
+                if !in_trash(t) {
+                    return invalid(format!("“{}” is not in the Trash; only items in the Trash can be deleted permanently", t.title));
+                }
+                add(id, &mut doomed);
+                // A project or heading takes its contents with it.
+                for c in state.tasks.values() {
+                    if c.projects.iter().any(|p| p == id) || c.headings.iter().any(|h| h == id) {
+                        add(&c.id, &mut doomed);
+                    }
+                }
+            }
+            // Children first: checklist items, then to-dos, headings, projects.
+            let rank = |id: &String| match state.tasks.get(id).map(|t| t.task_type) {
+                Some(TaskType::Project) => 2,
+                Some(TaskType::Heading) => 1,
+                _ => 0,
+            };
+            doomed.sort_by_key(rank);
+            let mut checklist: Vec<&String> =
+                state.checklist.values().filter(|c| c.tasks.iter().any(|t| doomed.contains(t))).map(|c| &c.id).collect();
+            checklist.sort();
+            for c in checklist {
+                plan.items.push(ops::checklist_delete(c)?);
+            }
+            for id in &doomed {
+                plan.items.push(ops::task_delete(id)?);
+            }
+            plan.summary = if ids.len() == 1 {
+                format!("Delete “{}” permanently", task(state, &ids[0])?.title)
+            } else {
+                format!("Delete {} items permanently", ids.len())
+            };
+        }
         Mutation::StopRepeating { id, confirm } => {
             let t = task(state, id)?;
             if confirm != CONFIRM_PHRASE {
@@ -675,6 +739,30 @@ mod tests {
 
     fn parse(v: serde_json::Value) -> Mutation {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn delete_tasks_only_from_the_trash_and_takes_contents() {
+        let mut f = fixture();
+        let del = |ids: Vec<&String>, confirm: &str| parse(json!({"type":"deleteTasks","ids":ids,"confirm":confirm}));
+        assert_eq!(del(vec![&f.task], "DELETE").class(), WriteClass::Destructive);
+        assert!(matches!(plan(&f.state, &del(vec![&f.task], ""), &ctx()), Err(PlanError::ConfirmationRequired)));
+        assert!(matches!(plan(&f.state, &del(vec![&f.task], "DELETE"), &ctx()), Err(PlanError::Invalid(_))), "not in the Trash");
+
+        f.state.tasks.get_mut(&f.task).unwrap().trashed = true;
+        let p = plan(&f.state, &del(vec![&f.task], "DELETE"), &ctx()).unwrap();
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(p.items[0].uuid, f.task);
+        assert_eq!(p.items[0].kind, "Task6");
+        assert_eq!(p.items[0].action, things_cloud::wire::action::DELETE);
+
+        // A trashed project deletes its heading too, children before the project.
+        f.state.tasks.get_mut(&f.project).unwrap().trashed = true;
+        let p = plan(&f.state, &del(vec![&f.project], "DELETE"), &ctx()).unwrap();
+        let ids: Vec<&str> = p.items.iter().map(|i| i.uuid.as_str()).collect();
+        assert_eq!(ids, vec![f.heading.as_str(), f.project.as_str()]);
+        // The heading counts as in the Trash through its project.
+        assert!(plan(&f.state, &del(vec![&f.heading], "DELETE"), &ctx()).is_ok());
     }
 
     #[test]

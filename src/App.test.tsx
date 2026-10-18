@@ -229,6 +229,35 @@ describe("App", () => {
     expect(screen.getByText("Plan weekend hike")).toBeInTheDocument();
   });
 
+  it("in the Trash, Delete asks and then deletes for good instead of putting back", async () => {
+    const t = useStore.getState;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    // Put two to-dos in the Trash first.
+    await userEvent.click(inList("Plan weekend hike"));
+    await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}{Delete}");
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    await userEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: /^Trash/ }));
+    expect(await screen.findByRole("heading", { name: "Trash" })).toBeInTheDocument();
+    await userEvent.click(inList("Water the plants"));
+    await userEvent.keyboard("{Control>}a{/Control}{Delete}");
+    const dialog = await screen.findByRole("dialog", { name: /Delete 3 to-dos permanently/ });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+    await waitFor(async () => expect((await backend.getState()).snapshot.tasks.some((x) => x.trashed)).toBe(false));
+    expect((await backend.getState()).snapshot.tasks.some((x) => x.title === "Water the plants")).toBe(false);
+    expect(t().view!.tasks.some((x) => x.title === "Plan weekend hike")).toBe(false);
+    expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
+  });
+
+  it("Put Back in the Trash restores the selection", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: /^Trash/ }));
+    await userEvent.click(await screen.findByText("Old idea"));
+    await userEvent.click(screen.getByRole("button", { name: "Put Back" }));
+    await waitFor(async () => expect((await taskByTitle(backend, "Old idea")).trashed).toBe(false));
+  });
+
   it("Select mode from the list ••• menu, with Done to leave it", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Today" });

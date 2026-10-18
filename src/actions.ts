@@ -175,13 +175,43 @@ export async function bulkMove(tasks: Task[], target: MoveTarget) {
 }
 
 export async function bulkTrash(tasks: Task[], trashed = true) {
+  if (trashed && tasks.length && tasks.every((t) => t.trashed)) return deletePermanently(tasks);
+  tasks = tasks.filter((t) => t.trashed !== trashed);
+  if (!tasks.length) return;
   if (tasks.length === 1) return void (await trash(tasks[0], trashed));
   const n = okCount(await bulk(tasks, (t) => apply({ type: "setTrashed", id: t.id, baseRev: t.rev, trashed })));
   const s = useStore.getState();
+  if (n) s.setSelectMode(false);
+  if (n && !trashed) s.toast(`Put back ${plural(n)}`, "success");
   if (n && trashed) {
-    s.setSelectMode(false);
     s.toast(`Moved ${plural(n)} to the Trash`, "info", { label: "Undo", run: () => void bulkTrash(tasks.map(fresh), false) });
   }
+}
+
+/** Things' Delete in the Trash: asks, then deletes for good. */
+export function deletePermanently(tasks: Task[]) {
+  const s = useStore.getState();
+  const ids = tasks.filter((t) => t.trashed || t.projectId || t.headingId).map((t) => t.id);
+  if (!ids.length) return;
+  if (s.app && !s.app.policy.destructive) {
+    s.toast("Permanent deletions are turned off.", "info", { label: "Turn on…", run: () => s.openDialog({ kind: "destructiveOptIn" }) });
+    return;
+  }
+  const one = tasks.length === 1 ? `“${tasks[0].title || "Untitled"}”` : plural(tasks.length);
+  s.openDialog({
+    kind: "confirm",
+    title: `Delete ${one} permanently?`,
+    body: "They're removed from Things everywhere, including your iPhone. This can't be undone.",
+    mutation: { type: "deleteTasks", ids, confirm: "" },
+    phrase: false,
+  });
+}
+
+/** Empty Trash: everything in the Trash, permanently. */
+export function emptyTrash() {
+  const v = useStore.getState().view;
+  const tasks = (v?.tasks ?? []).filter((t) => t.trashed);
+  if (tasks.length) deletePermanently(tasks);
 }
 
 export async function bulkDeadline(tasks: Task[], deadline: string | null) {

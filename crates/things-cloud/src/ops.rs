@@ -278,6 +278,12 @@ pub fn checklist_delete(item_id: &str) -> Result<Item, OpError> {
     Ok(Item::new(item_id, kind::CHECKLIST_ITEM, action::DELETE, json!({})))
 }
 
+/// Permanently deletes a to-do, heading or project (Things' Empty Trash).
+pub fn task_delete(task_id: &str) -> Result<Item, OpError> {
+    check_ids([&task_id.to_string()])?;
+    Ok(Item::new(task_id, kind::TASK, action::DELETE, json!({})))
+}
+
 pub fn area_create(area_id: &str, title: &str) -> Result<Item, OpError> {
     check_ids([&area_id.to_string()])?;
     if title.trim().is_empty() {

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, pasteAsTodos } from "./actions";
+import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, deletePermanently, pasteAsTodos } from "./actions";
 import { getBackend } from "./backend";
 import { ContextMenu } from "./components/ContextMenu";
 import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
-import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, TrashIcon } from "./components/Icons";
+import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, TrashIcon, UndoIcon } from "./components/Icons";
 import { bulkMenu, bulkMoreMenu, newItemsMenu, taskMenu } from "./components/menus";
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
@@ -108,7 +108,7 @@ export function App() {
           s.openPicker({ kind, taskId: targets[0].id, taskIds: targets.map((t) => t.id), anchor });
         };
         if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) return (e.preventDefault(), anchor && s.openMenu(anchor, bulkMenu(targets, anchor)));
-        if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash(targets, !targets.every((t) => t.trashed)));
+        if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash(targets));
         if (ctrl && key === "d") return (e.preventDefault(), void bulkDuplicate(targets));
         if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, targets.some((t) => t.status === "open") ? "completed" : "open"));
         if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule(targets, { kind: "today" }));
@@ -134,7 +134,7 @@ export function App() {
         if (row) s.openMenu(row, taskMenu(task));
         return;
       }
-      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash([task], !task.trashed));
+      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash([task]));
       if (ctrl && key === "d" && task.type === "task" && s.canWrite()) return (e.preventDefault(), void bulkDuplicate([task]));
       if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "open" ? "completed" : "open"));
       if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule([task], { kind: "today" }));
@@ -250,6 +250,7 @@ function SelectionBar() {
   const multi = useMulti();
   const count = useStore((s) => s.selectedIds.length);
   const writable = useStore((s) => !!s.app?.canWrite);
+  const inTrash = useStore((s) => s.selection.kind === "list" && s.selection.id === "trash");
   if (!multi) return null;
   const tasks = () => selectedTasks();
   const open = (kind: PickerState["kind"]) => (e: React.MouseEvent<HTMLElement>) => {
@@ -257,6 +258,18 @@ function SelectionBar() {
     if (ts.length) useStore.getState().openPicker({ kind, taskId: ts[0].id, taskIds: ts.map((t) => t.id), anchor: e.currentTarget });
   };
   const none = count === 0;
+  if (inTrash)
+    return (
+      <div className="selection-bar" role="toolbar" aria-label="Selected to-dos">
+        <span className="sel-count">{none ? "Select to-dos" : `${count} selected`}</span>
+        <button className="sb-btn" disabled={none || !writable} onClick={() => void bulkTrash(tasks(), false)}>
+          <UndoIcon size={15} /> Put Back
+        </button>
+        <button className="sb-btn danger" disabled={none || !writable} onClick={() => deletePermanently(tasks())}>
+          <TrashIcon size={15} /> Delete
+        </button>
+      </div>
+    );
   return (
     <div className="selection-bar" role="toolbar" aria-label="Selected to-dos">
       <span className="sel-count">{none ? "Select to-dos" : `${count} selected`}</span>

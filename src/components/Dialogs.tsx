@@ -469,7 +469,7 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
             disabled={!ok}
             onClick={() => {
               close();
-              void apply("confirm" in mutation ? { ...mutation, confirm: text } : mutation);
+              void apply("confirm" in mutation ? { ...mutation, confirm: phrase ? text : "DELETE" } : mutation);
             }}
           >
             Delete permanently

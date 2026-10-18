@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { moveTo, schedule, toggleComplete, trash } from "../actions";
+import { deletePermanently, moveTo, schedule, toggleComplete, trash } from "../actions";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
 import { useMulti, useStore } from "../store";
@@ -88,6 +88,9 @@ function RowActions({ task }: { task: Task }) {
       <div className="row-actions" onClick={stop} onDoubleClick={stop}>
         <button className="ra-btn" title="Put Back" aria-label="Put Back" onClick={() => void trash(task, false)}>
           <UndoIcon size={13} />
+        </button>
+        <button className="ra-btn danger" title="Delete Permanently (Delete)" aria-label="Delete Permanently" onClick={() => deletePermanently([task])}>
+          <TrashIcon size={13} />
         </button>
       </div>
     );

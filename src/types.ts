@@ -117,9 +117,11 @@ export type Mutation =
   | { type: "createTag"; title: string; parentId?: string | null }
   | { type: "renameTag"; id: string; baseRev: number | null; title: string }
   | { type: "deleteTag"; id: string; confirm: string }
-  | { type: "stopRepeating"; id: string; confirm: string };
+  | { type: "stopRepeating"; id: string; confirm: string }
+  /** Permanently deletes to-dos, projects and headings that are in the Trash (with their contents). */
+  | { type: "deleteTasks"; ids: string[]; confirm: string };
 
-export const DESTRUCTIVE: Mutation["type"][] = ["deleteChecklistItem", "deleteArea", "deleteTag", "stopRepeating"];
+export const DESTRUCTIVE: Mutation["type"][] = ["deleteChecklistItem", "deleteArea", "deleteTag", "stopRepeating", "deleteTasks"];
 
 export interface WriteReport {
   created: string[];

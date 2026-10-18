@@ -221,6 +221,26 @@ export function applyMutation(snap: Snapshot, m: Mutation, opts: { today?: strin
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       tags = tags.filter((t) => t.id !== m.id);
       break;
+    case "deleteTasks": {
+      if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
+      if (!m.ids.length) throw new MutationError("invalid", "Nothing to delete.");
+      const inTrash = (t: Task): boolean => {
+        if (t.trashed) return true;
+        const parents = [t.headingId, t.projectId].map((id) => (id ? tasks.get(id) : undefined));
+        return parents.some((p) => !!p && (p.trashed || inTrash(p)));
+      };
+      const doomed = new Set<string>();
+      for (const id of m.ids) {
+        const t = get(id);
+        if (!inTrash(t)) throw new MutationError("invalid", "Only items in the Trash can be deleted permanently.");
+        doomed.add(id);
+        // A project or heading takes its contents with it.
+        for (const c of tasks.values()) if (c.projectId === id || c.headingId === id) doomed.add(c.id);
+      }
+      for (const id of doomed) tasks.delete(id);
+      checklist = checklist.filter((c) => !doomed.has(c.taskId));
+      break;
+    }
     case "stopRepeating": {
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       put(get(m.id), { repeat: null });

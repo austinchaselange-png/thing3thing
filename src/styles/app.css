@@ -3008,3 +3008,7 @@ html.quick-entry #root {
   background: var(--fill);
   color: var(--text);
 }
+
+.sb-btn.danger:not(:disabled) {
+  color: var(--danger);
+}
