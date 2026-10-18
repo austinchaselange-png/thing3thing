@@ -10,8 +10,30 @@ import type { Mutation, WriteError } from "./types";
 
 function reset(backend: MockBackend) {
   setBackendForTests(backend);
-  useStore.setState({ app: null, view: null, pending: [], dialog: null, toasts: [], selection: { kind: "list", id: "today" }, selectedId: null, editingId: null, recentlyCompleted: [] });
+  useStore.setState({
+    app: null,
+    view: null,
+    pending: [],
+    dialog: null,
+    toasts: [],
+    menu: null,
+    picker: null,
+    selection: { kind: "list", id: "today" },
+    selectedId: null,
+    selectedIds: [],
+    anchorId: null,
+    selectMode: false,
+    editingId: null,
+    recentlyCompleted: [],
+  });
 }
+
+/** A row's title in the list (the sidebar widgets can show the same text). */
+const inList = (title: string) => within(screen.getByRole("listbox", { name: "To-dos" })).getByText(title);
+const ctrlClick = (title: string) => fireEvent.click(inList(title), { ctrlKey: true, detail: 1 });
+const shiftClick = (title: string) => fireEvent.click(inList(title), { shiftKey: true, detail: 1 });
+
+const taskByTitle = async (backend: MockBackend, title: string) => (await backend.getState()).snapshot.tasks.find((t) => t.title === title)!;
 
 describe("App", () => {
   let backend: MockBackend;
@@ -151,5 +173,115 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "When" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Move to Trash" })).toBeInTheDocument();
+  });
+
+  it("Ctrl-click and Shift-click select several to-dos and complete them together", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Pick up dry cleaning"));
+    ctrlClick("Go for a run");
+    const bar = await screen.findByRole("toolbar", { name: "Selected to-dos" });
+    expect(bar).toHaveTextContent("2 selected");
+    // The + button gives way to the selection bar, like Things.
+    expect(screen.queryByRole("button", { name: "New To-Do" })).not.toBeInTheDocument();
+
+    shiftClick("Call the dentist to reschedule");
+    expect(bar).toHaveTextContent("2 selected"); // range from the last Ctrl-click: run → dentist
+
+    await userEvent.click(within(bar).getByRole("button", { name: "More" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent?.replace(/Ctrl.*$/, ""))).toEqual(["Mark as Completed", "Set Tags…", "Set Deadline…", "Duplicate", "Share…"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Mark as Completed/ }));
+    await waitFor(async () => {
+      expect((await taskByTitle(backend, "Go for a run")).status).toBe("completed");
+      expect((await taskByTitle(backend, "Call the dentist to reschedule")).status).toBe("completed");
+    });
+    expect((await taskByTitle(backend, "Pick up dry cleaning")).status).toBe("open");
+  });
+
+  it("Set Tags on a selection adds the tag and keeps each to-do's other tags", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Review Q3 budget draft"));
+    ctrlClick("Water the plants");
+    fireEvent.contextMenu(inList("Water the plants"));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("2 Selected")).toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Set Tags/ }));
+    const picker = await screen.findByRole("dialog");
+    await userEvent.click(within(picker).getByRole("menuitemcheckbox", { name: /Errand/ }));
+    await waitFor(async () => {
+      expect((await taskByTitle(backend, "Review Q3 budget draft")).tagIds).toEqual(["tagImportant", "tagErrand"]);
+      expect((await taskByTitle(backend, "Water the plants")).tagIds).toEqual(["tagHome", "tagErrand"]);
+    });
+  });
+
+  it("Delete trashes the whole selection with one Undo", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Plan weekend hike"));
+    await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}{Delete}");
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    expect(screen.queryByText("Plan weekend hike")).not.toBeInTheDocument();
+    expect(await screen.findByText("Moved 2 to-dos to the Trash")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Water the plants")).toBeInTheDocument();
+    expect(screen.getByText("Plan weekend hike")).toBeInTheDocument();
+  });
+
+  it("Select mode from the list ••• menu, with Done to leave it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: "List actions" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent?.replace(/Ctrl.*$/, ""))).toEqual(["Filter by Tag", "Select", "Paste", "Share…"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Select/ }));
+    expect(screen.getByRole("toolbar", { name: "Selected to-dos" })).toHaveTextContent("Select to-dos");
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.click(inList("Water the plants"));
+    expect(screen.getByRole("toolbar", { name: "Selected to-dos" })).toHaveTextContent("2 selected");
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("toolbar", { name: "Selected to-dos" })).not.toBeInTheDocument();
+  });
+
+  it("Someday to-dos get a dashed box", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: /Someday/ }));
+    expect(await screen.findByRole("checkbox", { name: /Complete “Learn to make sourdough/ })).toHaveClass("someday");
+    await userEvent.click(within(screen.getByRole("navigation")).getAllByRole("button", { name: /^Today/ })[0]);
+    expect(await screen.findByRole("checkbox", { name: /Complete “Go for a run/ })).not.toHaveClass("someday");
+  });
+
+  it("an open to-do on Today links to its project", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Compare flight prices"));
+    await userEvent.click(inList("Compare flight prices")); // a second click opens it
+    const link = await screen.findByRole("button", { name: /Trip to Lisbon.*Book/ });
+    expect(link).toHaveTextContent("Book");
+    await userEvent.click(link);
+    expect(await screen.findByDisplayValue("Trip to Lisbon")).toBeInTheDocument();
+    expect(useStore.getState().selectedId).toBe((await taskByTitle(backend, "Compare flight prices")).id);
+  });
+
+  it("the project ••• menu matches Things", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByText("Trip to Lisbon"));
+    await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
+      "Complete Project",
+      "When",
+      "Add Tags…",
+      "Change Deadline…",
+      "Repeat…",
+      "Move…",
+      "Duplicate",
+      "Rename…",
+      "Delete Project",
+      "Share…",
+    ]);
   });
 });

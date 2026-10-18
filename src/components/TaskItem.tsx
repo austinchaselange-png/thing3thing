@@ -2,17 +2,20 @@ import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as React
 import { moveTo, schedule, toggleComplete, trash } from "../actions";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
-import { useStore } from "../store";
+import { useMulti, useStore } from "../store";
 import type { ChecklistItem, Tag, Task } from "../types";
 import {
+  AreaIcon,
   ArrowRightIcon,
   BellIcon,
   BoxIcon,
   CalendarIcon,
   ChecklistIcon,
+  ChevronIcon,
   CloseIcon,
   FlagIcon,
   MoonIcon,
+  MoreIcon,
   NotesIcon,
   ProgressPie,
   RepeatIcon,
@@ -21,16 +24,21 @@ import {
   TrashIcon,
   UndoIcon,
 } from "./Icons";
-import { checklistMenu, taskMenu } from "./menus";
+import { bulkMenu, checklistMenu, taskMenu } from "./menus";
 import { DeadlinePicker, MovePicker, TagPicker, WhenPicker } from "./Pickers";
 
 const EMPTY_TAGS: Tag[] = [];
+
+/** Someday to-dos (no start date) get a dashed box, like Things. */
+export function isSomeday(t: Pick<Task, "start" | "startDate" | "status">): boolean {
+  return t.status === "open" && t.start === "someday" && !t.startDate;
+}
 
 export function Checkbox({ task, disabled }: { task: Task; disabled: boolean }) {
   const done = task.status !== "open";
   return (
     <button
-      className={`checkbox${done ? " done" : ""}${task.status === "canceled" ? " canceled" : ""}${task.deadline && task.deadline <= todayYmd() && !done ? " due" : ""}`}
+      className={`checkbox${done ? " done" : ""}${task.status === "canceled" ? " canceled" : ""}${task.deadline && task.deadline <= todayYmd() && !done ? " due" : ""}${isSomeday(task) ? " someday" : ""}`}
       role="checkbox"
       aria-checked={done}
       aria-label={done ? `Mark “${task.title}” as open` : `Complete “${task.title}”`}
@@ -100,8 +108,35 @@ function RowActions({ task }: { task: Task }) {
   );
 }
 
+/** Row ids in the order they appear on screen. */
+function visibleRowIds(): string[] {
+  return [...document.querySelectorAll<HTMLElement>(".groups .task-row[data-task-id]")].map((el) => el.dataset.taskId!);
+}
+
+/** Click, Ctrl-click and Shift-click selection, like Things and Explorer. */
+function clickRow(e: React.MouseEvent, task: Task) {
+  const s = useStore.getState();
+  if (e.shiftKey) {
+    const ids = visibleRowIds();
+    const from = ids.indexOf(s.anchorId ?? s.selectedId ?? task.id);
+    const to = ids.indexOf(task.id);
+    if (from !== -1 && to !== -1) {
+      const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+      const keep = e.ctrlKey || e.metaKey ? s.selectedIds.filter((id) => !range.includes(id)) : [];
+      s.setSelected([...keep, ...range], task.id);
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+  }
+  if (e.ctrlKey || e.metaKey || s.selectMode) return s.toggleSelected(task.id);
+  // Clicking the one selected to-do again opens it, like tapping in Things.
+  if (task.type === "task" && !task.trashed && s.selectedIds.length === 1 && s.selectedId === task.id && e.detail === 1) return s.edit(task.id);
+  s.selectTask(task.id);
+}
+
 export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: RowContext }) {
-  const selected = useStore((s) => s.selectedId === task.id);
+  const selected = useStore((s) => s.selectedIds.includes(task.id));
+  const multi = useMulti();
   const editing = useStore((s) => s.editingId === task.id);
   const view = useStore((s) => s.view);
   const writable = useStore((s) => !!s.app?.canWrite);
@@ -135,21 +170,36 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
       draggable={writable}
       data-task-id={task.id}
       onDragStart={(e) => {
-        e.dataTransfer.setData("application/x-tings3-task", task.id);
+        // Dragging a selected row carries the whole selection.
+        const s = useStore.getState();
+        const ids = selected && s.selectedIds.length > 1 ? s.selectedIds : [task.id];
+        e.dataTransfer.setData("application/x-tings3-task", ids.join("\n"));
         e.dataTransfer.effectAllowed = "move";
       }}
-      onClick={() => selectTask(task.id)}
-      onDoubleClick={() => (isProject ? select({ kind: "project", id: task.id }) : edit(task.id))}
+      onMouseDown={(e) => e.shiftKey && e.preventDefault() /* no text selection on Shift-click */}
+      onClick={(e) => clickRow(e, task)}
+      onDoubleClick={(e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey || useStore.getState().selectMode) return;
+        if (isProject) select({ kind: "project", id: task.id });
+        else edit(task.id);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
+        const s = useStore.getState();
+        if (selected && s.selectedIds.length > 1) {
+          const byId = new Map((s.view?.tasks ?? []).map((t) => [t.id, t]));
+          const tasks = s.selectedIds.map((id) => byId.get(id)).filter((t): t is Task => !!t);
+          s.openMenu(e, bulkMenu(tasks, rowRef.current));
+          return;
+        }
         selectTask(task.id);
-        useStore.getState().openMenu(e, taskMenu(task));
+        s.openMenu(e, taskMenu(task));
       }}
     >
-      {selected && writable && <RowActions task={task} />}
+      {selected && writable && !multi && <RowActions task={task} />}
       {isProject ? (
         <button className="project-pie" aria-label={`Open project ${task.title}`} onClick={() => select({ kind: "project", id: task.id })}>
-          <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} color="var(--c-project)" />
+          <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} color="var(--c-project)" dashed={isSomeday(task)} />
         </button>
       ) : (
         <Checkbox task={task} disabled={!writable} />
@@ -182,9 +232,45 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
         </div>
         {ctx.showProject && (parent || area) && <div className="task-sub">{parent ? parent.title : area?.title}</div>}
       </div>
+      {multi && (
+        <span className={`sel-circle${selected ? " on" : ""}`} role="presentation" aria-hidden="true">
+          {selected && (
+            <svg viewBox="0 0 12 12" width="9" height="9">
+              <path d="m2.5 6.3 2.3 2.2 4.7-5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </span>
+      )}
     </div>
   );
 });
+
+/** "○ Project ›" in the open to-do, when viewing it outside its project or area (Today, Upcoming…). */
+function ContainerLink({ task }: { task: Task }) {
+  const selection = useStore((s) => s.selection);
+  const view = useStore((s) => s.view);
+  const project = task.projectId ? view?.tasks.find((t) => t.id === task.projectId) : undefined;
+  const area = task.areaId ? view?.areas.find((a) => a.id === task.areaId) : undefined;
+  const progress = project && view ? projectProgress(project.id, view) : null;
+  const heading = task.headingId ? view?.tasks.find((t) => t.id === task.headingId) : undefined;
+  if (project && selection.kind === "project" && selection.id === project.id) return null;
+  if (!project && area && selection.kind === "area" && selection.id === area.id) return null;
+  if (!project && !area) return null;
+  const go = () => {
+    const s = useStore.getState();
+    s.edit(null);
+    s.select(project ? { kind: "project", id: project.id } : { kind: "area", id: area!.id });
+    s.selectTask(task.id);
+  };
+  return (
+    <button className="container-link" onClick={go} title={project ? "Open project" : "Open area"}>
+      {project ? <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} size={14} color="var(--c-project)" dashed={isSomeday(project)} /> : <AreaIcon size={14} />}
+      <span>{project ? project.title || "Untitled Project" : area!.title}</span>
+      {heading && <span className="container-heading">· {heading.title}</span>}
+      <ChevronIcon size={10} />
+    </button>
+  );
+}
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -359,7 +445,13 @@ export function TaskEditor({ task }: { task: Task }) {
           <button className="icon-btn" title="Move to Trash (Delete)" onClick={() => void trash(task)} disabled={!writable}>
             <TrashIcon />
           </button>
+          <button className="icon-btn" title="More" aria-label="More actions" onClick={(e) => useStore.getState().openMenu(e.currentTarget, taskMenu(task))}>
+            <MoreIcon />
+          </button>
         </div>
+      </div>
+      <div className="editor-where">
+        <ContainerLink task={task} />
       </div>
       {picker === "when" && (
         <WhenPicker anchor={anchor} task={task} onPick={(w, r) => void schedule(task, w, r)} onClose={() => setPicker(null)} />

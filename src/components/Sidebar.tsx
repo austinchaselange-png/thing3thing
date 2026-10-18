@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { moveTo, schedule, trash } from "../actions";
+import { bulkMove, bulkSchedule, bulkTrash } from "../actions";
 import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
@@ -15,15 +15,15 @@ function sameSel(a: Selection, b: Selection) {
   return a.kind === b.kind && a.id === b.id;
 }
 
-function dropAction(target: Selection): ((t: Task) => void) | null {
-  if (target.kind === "project") return (t) => void moveTo(t, { projectId: target.id });
-  if (target.kind === "area") return (t) => void moveTo(t, { areaId: target.id });
+function dropAction(target: Selection): ((ts: Task[]) => void) | null {
+  if (target.kind === "project") return (ts) => void bulkMove(ts.filter((t) => t.id !== target.id), { projectId: target.id });
+  if (target.kind === "area") return (ts) => void bulkMove(ts, { areaId: target.id });
   if (target.kind !== "list") return null;
   const whenFor: Partial<Record<ListId, When>> = { today: { kind: "today" }, anytime: { kind: "anytime" }, someday: { kind: "someday" } };
-  if (target.id === "inbox") return (t) => void moveTo(t, { inbox: true });
-  if (target.id === "trash") return (t) => void trash(t);
+  if (target.id === "inbox") return (ts) => void bulkMove(ts, { inbox: true });
+  if (target.id === "trash") return (ts) => void bulkTrash(ts);
   const w = whenFor[target.id];
-  return w ? (t) => void schedule(t, w) : null;
+  return w ? (ts) => void bulkSchedule(ts, w) : null;
 }
 
 function menuFor(sel: Selection) {
@@ -49,9 +49,10 @@ function NavItem({ sel, icon, label, count, badge, strong }: { sel: Selection; i
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const id = e.dataTransfer.getData("application/x-tings3-task");
-    const t = useStore.getState().view?.tasks.find((x) => x.id === id);
-    if (t && action) action(t);
+    const ids = e.dataTransfer.getData("application/x-tings3-task").split("\n").filter(Boolean);
+    const byId = new Map((useStore.getState().view?.tasks ?? []).map((t) => [t.id, t]));
+    const tasks = ids.map((id) => byId.get(id)).filter((t): t is Task => !!t);
+    if (tasks.length && action) action(tasks);
   };
   return (
     <button

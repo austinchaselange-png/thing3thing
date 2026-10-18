@@ -53,7 +53,7 @@ export function whenOf(t: Task): When {
 }
 
 /** Creates a copy of a to-do with its notes, schedule, tags and checklist. */
-export async function duplicate(t: Task) {
+export async function duplicate(t: Task, opts: { quiet?: boolean } = {}) {
   const s = useStore.getState();
   const checklist = (s.view?.checklist ?? []).filter((c) => c.taskId === t.id).sort((a, b) => a.index - b.index).map((c) => c.title);
   const r = await apply({
@@ -68,7 +68,7 @@ export async function duplicate(t: Task) {
     headingId: t.headingId,
     checklist,
   });
-  if (r?.created[0]) {
+  if (r?.created[0] && !opts.quiet) {
     s.selectTask(r.created[0]);
     s.toast("Duplicated", "success");
   }
@@ -136,5 +136,176 @@ export function newTaskDefaults(sel: Selection, section?: string): Partial<Extra
       return { when: { kind: "someday" } };
     default:
       return {};
+  }
+}
+
+// ---------------- several to-dos at once (multi-selection) ----------------
+
+const plural = (n: number, noun = "to-do") => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** Runs `fn` on every task. When writes are off, runs it once so the user sees why. */
+async function bulk<T>(tasks: Task[], fn: (t: Task) => Promise<T>): Promise<T[]> {
+  if (!tasks.length) return [];
+  if (!useStore.getState().canWrite()) return [await fn(tasks[0])];
+  // The backend serializes writes; sending them together keeps the UI snappy.
+  return Promise.all(tasks.map((t) => fn(fresh(t))));
+}
+
+const okCount = (rs: unknown[]) => rs.filter(Boolean).length;
+
+export async function bulkSetStatus(tasks: Task[], status: TaskStatus) {
+  const targets = tasks.filter((t) => t.status !== status && t.type !== "heading");
+  const n = okCount(await bulk(targets, (t) => setStatus(t, status)));
+  if (n > 1) {
+    const verb = status === "open" ? "Reopened" : status === "completed" ? "Completed" : "Canceled";
+    useStore.getState().toast(`${verb} ${plural(n)}`, "success", { label: "Undo", run: () => void bulkSetStatus(targets.map(fresh), "open") });
+  }
+}
+
+export async function bulkSchedule(tasks: Task[], when: When, reminder?: string | null) {
+  const targets = tasks.filter((t) => t.type !== "heading" && !(when.kind === "inbox" && (t.projectId || t.areaId || t.headingId || t.type === "project")));
+  await bulk(targets, (t) => schedule(t, when, reminder));
+}
+
+export async function bulkMove(tasks: Task[], target: MoveTarget) {
+  // Projects only go into areas; headings stay where they are.
+  const intoProject = !!(target.projectId || target.headingId || target.inbox);
+  const targets = tasks.filter((t) => t.type === "task" || (t.type === "project" && !intoProject));
+  await bulk(targets, (t) => moveTo(t, target));
+}
+
+export async function bulkTrash(tasks: Task[], trashed = true) {
+  if (tasks.length === 1) return void (await trash(tasks[0], trashed));
+  const n = okCount(await bulk(tasks, (t) => apply({ type: "setTrashed", id: t.id, baseRev: t.rev, trashed })));
+  const s = useStore.getState();
+  if (n && trashed) {
+    s.setSelectMode(false);
+    s.toast(`Moved ${plural(n)} to the Trash`, "info", { label: "Undo", run: () => void bulkTrash(tasks.map(fresh), false) });
+  }
+}
+
+export async function bulkDeadline(tasks: Task[], deadline: string | null) {
+  await bulk(tasks.filter((t) => t.type !== "heading"), (t) => apply({ type: "updateTask", id: t.id, baseRev: t.rev, deadline }));
+}
+
+/** Adds and removes tags on every task, keeping each task's other tags. */
+export async function bulkTags(tasks: Task[], add: string[], remove: string[]) {
+  const targets = tasks.filter((t) => add.some((id) => !t.tagIds.includes(id)) || remove.some((id) => t.tagIds.includes(id)));
+  await bulk(targets, (t) => {
+    const tagIds = [...new Set([...t.tagIds.filter((id) => !remove.includes(id)), ...add])];
+    return apply({ type: "updateTask", id: t.id, baseRev: t.rev, tagIds });
+  });
+}
+
+/** Tags every task has: what the tag picker shows as checked. */
+export function commonTags(tasks: Task[]): string[] {
+  if (!tasks.length) return [];
+  return tasks[0].tagIds.filter((id) => tasks.every((t) => t.tagIds.includes(id)));
+}
+
+export async function bulkDuplicate(tasks: Task[]) {
+  const s = useStore.getState();
+  const rs = await bulk(tasks.filter((t) => t.type === "task"), (t) => duplicate(t, { quiet: true }));
+  const created = rs.map((r) => r?.created[0]).filter((x): x is string => !!x);
+  if (created.length) {
+    s.setSelected(created);
+    s.toast(created.length === 1 ? "Duplicated" : `Duplicated ${plural(created.length)}`, "success");
+  }
+}
+
+/** Copies a project with its headings, open to-dos and checklists. */
+export async function duplicateProject(p: Task) {
+  const s = useStore.getState();
+  const snap = s.view;
+  if (!snap) return;
+  const r = await apply({ type: "createTask", kind: "project", title: p.title || "Untitled Project", notes: p.notes, when: whenOf(p), deadline: p.deadline, tagIds: p.tagIds, areaId: p.areaId });
+  const copy = r?.created[0];
+  if (!copy) return;
+  // New items go to the top, so create them last-first to keep the original order.
+  const children = snap.tasks.filter((t) => t.projectId === p.id && t.id !== p.id && !t.trashed && t.status === "open").sort((a, b) => b.index - a.index);
+  const headingMap = new Map<string, string>();
+  for (const h of children.filter((t) => t.type === "heading")) {
+    const hr = await apply({ type: "createTask", kind: "heading", title: h.title || "Heading", projectId: copy });
+    if (hr?.created[0]) headingMap.set(h.id, hr.created[0]);
+  }
+  for (const t of children.filter((c) => c.type === "task")) {
+    const checklist = snap.checklist.filter((c) => c.taskId === t.id).sort((a, b) => a.index - b.index).map((c) => c.title);
+    const headingId = t.headingId ? (headingMap.get(t.headingId) ?? null) : null;
+    await apply({ type: "createTask", title: t.title || "Untitled", notes: t.notes, when: whenOf(t), deadline: t.deadline, tagIds: t.tagIds, projectId: headingId ? null : copy, headingId, checklist });
+  }
+  s.select({ kind: "project", id: copy });
+  s.toast("Project duplicated", "success");
+}
+
+/** Plain-text rendering of to-dos for Share and the clipboard. */
+export function tasksAsText(tasks: Task[], title?: string): string {
+  const snap = useStore.getState().view;
+  const lines: string[] = title ? [title, ""] : [];
+  for (const t of tasks) {
+    lines.push(`${t.status === "open" ? "- [ ]" : "- [x]"} ${t.title || "Untitled"}`);
+    if (t.notes.trim()) lines.push(...t.notes.trim().split("\n").map((l) => `    ${l}`));
+    for (const c of (snap?.checklist ?? []).filter((c) => c.taskId === t.id).sort((a, b) => a.index - b.index)) {
+      lines.push(`    ${c.completed ? "- [x]" : "- [ ]"} ${c.title}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** A project with its headings and open to-dos, as text. */
+export function projectAsText(p: Task): string {
+  const snap = useStore.getState().view;
+  const children = (snap?.tasks ?? []).filter((t) => t.projectId === p.id && t.id !== p.id && !t.trashed && t.status === "open").sort((a, b) => a.index - b.index);
+  const parts = [tasksAsText(children.filter((t) => t.type === "task" && !t.headingId), p.title || "Untitled Project")];
+  if (p.notes.trim()) parts.splice(1, 0, p.notes.trim());
+  for (const h of children.filter((t) => t.type === "heading")) {
+    parts.push(tasksAsText(children.filter((t) => t.headingId === h.id), `${h.title}:`));
+  }
+  return parts.join("\n\n");
+}
+
+/** Opens the system share sheet when there is one; otherwise copies the text. */
+export async function shareText(title: string, text: string) {
+  const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string }) => Promise<void> };
+  if (typeof nav.share === "function") {
+    try {
+      await nav.share({ title, text });
+      return;
+    } catch (e) {
+      if ((e as DOMException)?.name === "AbortError") return;
+    }
+  }
+  await copyText(text, "Copied to the clipboard");
+}
+
+/** Things' Paste: each line on the clipboard becomes a to-do in the current list. */
+export async function pasteAsTodos(sel: Selection) {
+  const s = useStore.getState();
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    s.toast("Couldn't read the clipboard.", "error");
+    return;
+  }
+  const titles = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:[-*•]\s*)?(?:\[[ xX]\]\s*)?/, "").trim())
+    .filter(Boolean)
+    .slice(0, 100);
+  if (!titles.length) {
+    s.toast("There's no text on the clipboard to paste.", "info");
+    return;
+  }
+  const defaults = newTaskDefaults(sel);
+  const created: string[] = [];
+  // New to-dos go to the top, so add the last line first to keep the clipboard's order.
+  for (const title of [...titles].reverse()) {
+    const r = await apply({ type: "createTask", ...defaults, title });
+    if (!r) break;
+    if (r.created[0]) created.unshift(r.created[0]);
+  }
+  if (created.length) {
+    s.setSelected(created);
+    s.toast(`Pasted ${plural(created.length)}`, "success");
   }
 }

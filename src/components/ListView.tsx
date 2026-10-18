@@ -5,8 +5,9 @@ import { buildIndex, groupsFor, projectProgress, type Group } from "../lib/lists
 import { parseQuickEntry } from "../lib/quickParse";
 import { useStore } from "../store";
 import type { Selection, Snapshot, Task } from "../types";
-import { AreaIcon, FlagIcon, LIST_META, MoonIcon, ProgressPie, TagIcon } from "./Icons";
-import { headingMenu, newItemsMenu } from "./menus";
+import { AreaIcon, FlagIcon, LIST_META, MoonIcon, MoreIcon, ProgressPie, TagIcon } from "./Icons";
+import { areaTitleMenu, headingMenu, listViewMenu, newItemsMenu, projectMenu, tagMenu } from "./menus";
+import { isSomeday } from "./TaskItem";
 import { TaskRow, type RowContext } from "./TaskItem";
 
 export function selectionTitle(sel: Selection, view: Snapshot): string {
@@ -90,7 +91,7 @@ function ProjectHeader({ project }: { project: Task }) {
   return (
     <header className="list-header project">
       <div className="list-title-row">
-        <ProgressPie done={p.done} total={p.total} size={26} color="var(--c-project)" />
+        <ProgressPie done={p.done} total={p.total} size={26} color="var(--c-project)" dashed={isSomeday(project)} />
         <input
           className="list-title-input"
           value={title}
@@ -101,6 +102,7 @@ function ProjectHeader({ project }: { project: Task }) {
           onBlur={() => title.trim() && title !== project.title && save({ title })}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
+        <TitleMore label="Project actions" items={(el) => projectMenu(project, el)} />
       </div>
       <div className="project-meta">
         {area && (
@@ -127,6 +129,15 @@ function ProjectHeader({ project }: { project: Task }) {
         aria-label="Project notes"
       />
     </header>
+  );
+}
+
+/** The ••• pill beside a project, area or tag title. */
+function TitleMore({ label, items }: { label: string; items: (anchor: HTMLElement) => import("../store").MenuItem[] }) {
+  return (
+    <button className="title-more" aria-label={label} title={label} onClick={(e) => useStore.getState().openMenu(e.currentTarget, items(e.currentTarget))}>
+      <MoreIcon size={15} />
+    </button>
   );
 }
 
@@ -199,6 +210,25 @@ export function ListView() {
     listId: selection.kind === "list" ? selection.id : selection.kind,
   };
   const isEmpty = filtered.every((g) => g.tasks.length === 0);
+  const selectMode = useStore((s) => s.selectMode);
+  const title = selectionTitle(selection, view);
+  const visibleTasks = () => filtered.flatMap((g) => g.tasks.map((t) => real.get(t.id) ?? t));
+  const area = selection.kind === "area" ? view.areas.find((a) => a.id === selection.id) : undefined;
+  const tag = selection.kind === "tag" ? view.tags.find((t) => t.id === selection.id) : undefined;
+  const corner = selectMode ? (
+    <button className="btn primary done-btn" onClick={() => useStore.getState().setSelectMode(false)}>
+      Done
+    </button>
+  ) : (
+    <button
+      className="list-more"
+      aria-label="List actions"
+      title="Filter by Tag, Select, Paste, Share"
+      onClick={(e) => useStore.getState().openMenu(e.currentTarget, listViewMenu(selection, title, usedTags, visibleTasks))}
+    >
+      <MoreIcon size={16} />
+    </button>
+  );
   const showUpcomingEmptyDays = selection.kind === "list" && selection.id === "upcoming";
   const canAdd = !(selection.kind === "list" && (selection.id === "logbook" || selection.id === "trash"));
 
@@ -213,6 +243,7 @@ export function ListView() {
         useStore.getState().openMenu(e, newItemsMenu(selection));
       }}
     >
+      <div className="list-corner">{corner}</div>
       {project ? (
         <ProjectHeader project={project} />
       ) : (
@@ -225,7 +256,9 @@ export function ListView() {
             ) : (
               <TagIcon size={26} style={{ color: "var(--text-2)" }} />
             )}
-            <h1>{selectionTitle(selection, view)}</h1>
+            <h1>{title}</h1>
+            {area && <TitleMore label="Area actions" items={() => areaTitleMenu(area)} />}
+            {tag && <TitleMore label="Tag actions" items={() => tagMenu(tag)} />}
           </div>
         </header>
       )}

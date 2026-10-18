@@ -2810,3 +2810,201 @@ html.quick-entry #root {
   padding: 1px 6px;
   white-space: nowrap;
 }
+
+/* ---------------- Someday: dashed boxes, like Things ---------------- */
+.checkbox.someday {
+  position: relative;
+  border-color: transparent;
+}
+
+/* Drawn as an SVG mask so the dashes stay crisp and evenly spaced at 15px. */
+.checkbox.someday::before {
+  content: "";
+  position: absolute;
+  inset: -1.3px;
+  background: var(--check);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Crect x='0.75' y='0.75' width='13.5' height='13.5' rx='3.4' fill='none' stroke='black' stroke-width='1.5' stroke-dasharray='2.6 2.05' stroke-dashoffset='1.3'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Crect x='0.75' y='0.75' width='13.5' height='13.5' rx='3.4' fill='none' stroke='black' stroke-width='1.5' stroke-dasharray='2.6 2.05' stroke-dashoffset='1.3'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+
+.checkbox.someday:not(:disabled):hover::before {
+  background: var(--accent);
+}
+
+/* ---------------- title ••• and list ••• menus ---------------- */
+.list-title-input {
+  flex: 0 1 auto;
+  field-sizing: content;
+  max-width: 100%;
+}
+
+.title-more {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  border-radius: 11px;
+  color: var(--muted);
+  background: var(--fill);
+  transition: background 0.12s, color 0.12s;
+}
+
+.title-more:hover,
+.title-more:focus-visible {
+  background: var(--fill-2);
+  color: var(--text);
+}
+
+.list-corner {
+  position: sticky;
+  top: 8px;
+  z-index: 4;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 18px;
+}
+
+.list-more {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--text-2);
+  border: 1.3px solid var(--sep);
+  background: var(--win);
+  transition: background 0.12s, color 0.12s;
+}
+
+.list-more:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.done-btn {
+  height: 28px;
+  padding: 0 16px;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+/* ---------------- multi-selection ---------------- */
+.task-row {
+  user-select: none;
+}
+
+.sel-circle {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--check);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.sel-circle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--raised) 92%, transparent);
+  backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: var(--shadow-pop);
+  animation: barIn 0.18s var(--ease);
+  white-space: nowrap;
+}
+
+@keyframes barIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+
+.sel-count {
+  padding: 0 10px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sb-btn.icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.sb-btn:not(:disabled):hover {
+  background: var(--fill);
+}
+
+.sb-btn:disabled {
+  color: var(--faint);
+}
+
+/* ---------------- the open to-do: link to its project or area ---------------- */
+.editor-where {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.editor-where:empty {
+  display: none;
+}
+
+.container-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border-radius: var(--r-ctl);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  max-width: 60%;
+}
+
+.container-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.container-link .container-heading {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.container-link:hover {
+  background: var(--fill);
+  color: var(--text);
+}

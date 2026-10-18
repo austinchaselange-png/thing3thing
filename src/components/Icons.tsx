@@ -67,7 +67,8 @@ export const AreaIcon = (p: P) => (
   </Svg>
 );
 
-export function ProgressPie({ done, total, size = 16, color = "currentColor" }: { done: number; total: number; size?: number; color?: string }) {
+/** Project progress ring. `dashed` marks a Someday project, like Things. */
+export function ProgressPie({ done, total, size = 16, color = "currentColor", dashed }: { done: number; total: number; size?: number; color?: string; dashed?: boolean }) {
   const frac = total ? done / total : 0;
   const r = 4.2;
   const angle = frac * 2 * Math.PI;
@@ -76,7 +77,7 @@ export function ProgressPie({ done, total, size = 16, color = "currentColor" }: 
   const large = frac > 0.5 ? 1 : 0;
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.3" fill="none" stroke={color} strokeWidth="1.4" />
+      <circle cx="8" cy="8" r="6.3" fill="none" stroke={color} strokeWidth="1.4" strokeDasharray={dashed ? "2.2 1.9" : undefined} />
       {frac >= 1 ? (
         <circle cx="8" cy="8" r={r} fill={color} />
       ) : frac > 0 ? (
@@ -120,6 +121,37 @@ export const NotesIcon = (p: P) => (
 export const ChecklistIcon = (p: P) => (
   <Svg {...p}>
     <path d="m2.5 4.2 1 1 1.8-2M2.5 9.7l1 1 1.8-2M7.5 4.5H13.5M7.5 10H13.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+export const MoreIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="3.5" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="12.5" cy="8" r="1.25" fill="currentColor" />
+  </Svg>
+);
+
+export const ShareIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M8 10V2.3M5.3 4.8 8 2.2l2.7 2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5.5 7H4.2a.9.9 0 0 0-.9.9v5.3c0 .5.4.9.9.9h7.6c.5 0 .9-.4.9-.9V7.9a.9.9 0 0 0-.9-.9h-1.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const SelectIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M2 4h7M2 8h7M2 12h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <circle cx="12.6" cy="5.2" r="1.7" stroke="currentColor" strokeWidth="1.2" />
+    <circle cx="12.6" cy="10.8" r="1.7" stroke="currentColor" strokeWidth="1.2" />
+  </Svg>
+);
+
+export const PasteIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="8" height="11" rx="1.4" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M5.5 3V2.2h3V3" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <rect x="7.5" y="7" width="6" height="7.5" rx="1.2" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" />
   </Svg>
 );
 

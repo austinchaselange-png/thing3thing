@@ -43,6 +43,8 @@ export interface ContextMenuState {
 export interface PickerState {
   kind: "when" | "move" | "deadline" | "tags" | "heading";
   taskId: string | null;
+  /** Several to-dos at once (multi-selection). Takes precedence over taskId. */
+  taskIds?: string[];
   anchor: HTMLElement | null;
   /** For "heading": the project to add it to. */
   projectId?: string;
@@ -67,7 +69,14 @@ interface Store {
   view: Snapshot | null;
   pending: Pending[];
   selection: Selection;
+  /** The focused row: last clicked, target of the keyboard. */
   selectedId: string | null;
+  /** Every selected row, in click order. Contains selectedId when it is set. */
+  selectedIds: string[];
+  /** Where a Shift-click range starts. */
+  anchorId: string | null;
+  /** "Select" mode from the ••• menu: clicks toggle rows, the bulk bar stays up. */
+  selectMode: boolean;
   editingId: string | null;
   /** Completed in this visit to the list; stay visible (checked) like Things. */
   recentlyCompleted: string[];
@@ -84,6 +93,11 @@ interface Store {
   setApp(app: AppState): void;
   select(sel: Selection): void;
   selectTask(id: string | null): void;
+  /** Ctrl-click: adds or removes one row. */
+  toggleSelected(id: string): void;
+  /** Replaces the multi-selection, e.g. Shift-click ranges or Ctrl+A. */
+  setSelected(ids: string[], focus?: string | null): void;
+  setSelectMode(on: boolean): void;
   edit(id: string | null): void;
   setTagFilter(id: string | null): void;
   openDialog(d: Dialog | null): void;
@@ -119,6 +133,9 @@ export const useStore = create<Store>((set, get) => ({
   pending: [],
   selection: { kind: "list", id: "today" },
   selectedId: null,
+  selectedIds: [],
+  anchorId: null,
+  selectMode: false,
   editingId: null,
   recentlyCompleted: [],
   tagFilter: null,
@@ -165,15 +182,31 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   select(selection) {
-    set({ selection, selectedId: null, editingId: null, recentlyCompleted: [], tagFilter: null });
+    set({ selection, selectedId: null, selectedIds: [], anchorId: null, selectMode: false, editingId: null, recentlyCompleted: [], tagFilter: null });
   },
 
   selectTask(id) {
-    set((s) => ({ selectedId: id, editingId: s.editingId && s.editingId !== id ? null : s.editingId }));
+    set((s) => ({ selectedId: id, selectedIds: id ? [id] : [], anchorId: id, editingId: s.editingId && s.editingId !== id ? null : s.editingId }));
+  },
+
+  toggleSelected(id) {
+    set((s) => {
+      const has = s.selectedIds.includes(id);
+      const selectedIds = has ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id];
+      return { selectedIds, selectedId: has ? (selectedIds.at(-1) ?? null) : id, anchorId: id, editingId: null };
+    });
+  },
+
+  setSelected(ids, focus) {
+    set((s) => ({ selectedIds: ids, selectedId: focus === undefined ? (ids.at(-1) ?? null) : focus, anchorId: s.anchorId ?? ids[0] ?? null, editingId: null }));
+  },
+
+  setSelectMode(selectMode) {
+    set({ selectMode, editingId: null, ...(selectMode ? {} : { selectedIds: [], selectedId: null, anchorId: null }) });
   },
 
   edit(id) {
-    set({ editingId: id, selectedId: id ?? get().selectedId });
+    set((s) => ({ editingId: id, selectedId: id ?? s.selectedId, selectedIds: id ? [id] : s.selectedIds, anchorId: id ?? s.anchorId, selectMode: id ? false : s.selectMode }));
   },
 
   setTagFilter(tagFilter) {
@@ -267,4 +300,16 @@ function handleWriteError(mutation: Mutation, e: unknown) {
 /** Convenience: current task by id from the optimistic view. */
 export function useTask(id: string | null): Task | undefined {
   return useStore((s) => (id ? s.view?.tasks.find((t) => t.id === id) : undefined));
+}
+
+/** The selected to-dos, in list order where possible. */
+export function selectedTasks(): Task[] {
+  const s = useStore.getState();
+  const byId = new Map((s.view?.tasks ?? []).map((t) => [t.id, t]));
+  return s.selectedIds.map((id) => byId.get(id)).filter((t): t is Task => !!t);
+}
+
+/** True while several rows are selected or Select mode is on. */
+export function useMulti(): boolean {
+  return useStore((s) => s.selectMode || s.selectedIds.length > 1);
 }

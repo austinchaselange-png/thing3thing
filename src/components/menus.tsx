@@ -1,7 +1,27 @@
 // Right-click menu definitions for every kind of item in the app.
-import { copyText, duplicate, moveTo, promptRename, renameTask, reveal, schedule, setStatus, trash, whenOf } from "../actions";
+import {
+  bulkDuplicate,
+  bulkSchedule,
+  bulkSetStatus,
+  bulkTrash,
+  copyText,
+  duplicate,
+  duplicateProject,
+  moveTo,
+  pasteAsTodos,
+  projectAsText,
+  promptRename,
+  renameTask,
+  reveal,
+  schedule,
+  setStatus,
+  shareText,
+  tasksAsText,
+  trash,
+  whenOf,
+} from "../actions";
 import { addDays, relativeLabel, todayYmd, weekdayName } from "../lib/dates";
-import { useStore, type MenuItem } from "../store";
+import { useStore, type MenuItem, type PickerState } from "../store";
 import type { Area, ChecklistItem, ListId, Selection, Tag, Task, When } from "../types";
 import {
   AreaIcon,
@@ -18,9 +38,13 @@ import {
   LayersIcon,
   MoonIcon,
   OpenIcon,
+  PasteIcon,
   PencilIcon,
   PlusIcon,
   ProgressPie,
+  RepeatIcon,
+  SelectIcon,
+  ShareIcon,
   StarIcon,
   TagIcon,
   TrashIcon,
@@ -48,28 +72,38 @@ function anchorFor(id: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`);
 }
 
-function whenItems(t: Task): MenuItem[] {
+/** Opens a picker for one task, or for several when `tasks` has more than one. */
+function pick(kind: PickerState["kind"], tasks: Task[], anchor?: HTMLElement | null) {
+  const many = tasks.length > 1;
+  store().openPicker({ kind, taskId: tasks[0]?.id ?? null, taskIds: many ? tasks.map((t) => t.id) : undefined, anchor: anchor ?? anchorFor(tasks[0]?.id ?? "") });
+}
+
+function whenItems(tasks: Task[], anchor?: HTMLElement | null): MenuItem[] {
+  const t = tasks[0];
   const today = todayYmd();
-  const current = whenOf(t);
-  const is = (k: When["kind"]) => current.kind === k;
+  const current = tasks.length === 1 ? whenOf(t) : null;
+  const is = (k: When["kind"]) => current?.kind === k;
   const tomorrow = addDays(today, 1);
-  const weekend = addDays(today, (6 - new Date().getDay() + 7) % 7 || 7);
+  // On a Saturday or Sunday, "This Weekend" would already be now: offer next weekend instead.
+  const dow = new Date().getDay();
+  const inWeekend = dow === 0 || dow === 6;
+  const weekend = addDays(today, dow === 0 ? 6 : 6 - dow || 7);
   const nextWeek = addDays(today, (8 - new Date().getDay()) % 7 || 7);
-  const go = (when: When) => () => void schedule(t, when);
+  const go = (when: When) => () => void (tasks.length === 1 ? schedule(t, when) : bulkSchedule(tasks, when));
   return [
     w({ label: "Today", icon: <StarIcon style={{ color: "var(--c-today)" }} />, shortcut: "Ctrl+T", checked: is("today") || undefined, onSelect: go({ kind: "today" }) }),
     w({ label: "This Evening", icon: <MoonIcon style={{ color: "var(--c-evening)" }} />, shortcut: "Ctrl+E", checked: is("evening") || undefined, onSelect: go({ kind: "evening" }) }),
-    w({ label: `Tomorrow`, icon: <CalendarIcon style={{ color: "var(--c-upcoming)" }} />, checked: current.kind === "date" && current.date === tomorrow ? true : undefined, onSelect: go({ kind: "date", date: tomorrow }) }),
-    w({ label: `This Weekend (${weekdayName(weekend, true)})`, icon: <CalendarIcon style={{ color: "var(--c-upcoming)" }} />, onSelect: go({ kind: "date", date: weekend }) }),
+    w({ label: `Tomorrow`, icon: <CalendarIcon style={{ color: "var(--c-upcoming)" }} />, checked: current?.kind === "date" && current.date === tomorrow ? true : undefined, onSelect: go({ kind: "date", date: tomorrow }) }),
+    w({ label: `${inWeekend ? "Next Weekend" : "This Weekend"} (${weekdayName(weekend, true)})`, icon: <CalendarIcon style={{ color: "var(--c-upcoming)" }} />, onSelect: go({ kind: "date", date: weekend }) }),
     w({ label: `Next Week (${relativeLabel(nextWeek, today)})`, icon: <CalendarIcon style={{ color: "var(--c-upcoming)" }} />, onSelect: go({ kind: "date", date: nextWeek }) }),
     SEP,
     w({ label: "Anytime", icon: <LayersIcon style={{ color: "var(--c-anytime)" }} />, shortcut: "Ctrl+R", checked: is("anytime") || undefined, onSelect: go({ kind: "anytime" }) }),
     w({ label: "Someday", icon: <BoxIcon style={{ color: "var(--c-someday)" }} />, shortcut: "Ctrl+O", checked: is("someday") || undefined, onSelect: go({ kind: "someday" }) }),
-    ...(t.type === "task" && !t.areaId && !t.projectId && !t.headingId
+    ...(tasks.every((x) => x.type === "task" && !x.areaId && !x.projectId && !x.headingId)
       ? [w({ label: "Inbox", icon: <InboxIcon style={{ color: "var(--c-inbox)" }} />, checked: is("inbox") || undefined, onSelect: go({ kind: "inbox" }) })]
       : []),
     SEP,
-    w({ label: "Choose Date…", icon: <CalendarIcon />, shortcut: "Ctrl+S", onSelect: () => store().openPicker({ kind: "when", taskId: t.id, anchor: anchorFor(t.id) }) }),
+    w({ label: "Choose Date…", icon: <CalendarIcon />, shortcut: "Ctrl+S", onSelect: () => pick("when", tasks, anchor) }),
   ];
 }
 
@@ -96,7 +130,7 @@ export function taskMenu(t: Task): MenuItem[] {
   );
   if (open) items.push(w({ label: isProject ? "Cancel Project" : "Cancel", icon: <CancelIcon />, onSelect: () => void setStatus(t, "canceled") }));
   items.push(SEP as W);
-  if (open) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems(t)) }));
+  if (open) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems([t])) }));
   items.push(
     w({ label: t.deadline ? "Change Deadline…" : "Add Deadline…", icon: <FlagIcon />, shortcut: "Ctrl+Shift+D", onSelect: () => s.openPicker({ kind: "deadline", taskId: t.id, anchor: anchorFor(t.id) }) }),
   );
@@ -110,6 +144,7 @@ export function taskMenu(t: Task): MenuItem[] {
   if (isProject) items.push(w({ label: "Rename…", icon: <PencilIcon />, onSelect: () => renameTask(t) }));
   if (!isProject) items.push(w({ label: "Duplicate", icon: <CopyIcon />, shortcut: "Ctrl+D", onSelect: () => void duplicate(t) }));
   items.push({ label: "Copy Title", icon: <ClipboardIcon />, onSelect: () => void copyText(t.title, "Title copied") });
+  items.push({ label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(t.title, isProject ? projectAsText(t) : tasksAsText([t])) });
   if (s.selection.kind !== "project" || s.selection.id !== (t.projectId ?? t.id)) {
     items.push({ label: isProject ? "Show Project" : "Show in List", icon: <OpenIcon />, onSelect: () => reveal(t) });
   }
@@ -286,5 +321,128 @@ export function listMenu(id: ListId): MenuItem[] {
       hint: n ? "Permanently deleting to-dos isn't supported yet — empty the Trash in Things on your iPhone" : "The Trash is empty",
     });
   }
+  return guard(items);
+}
+
+/** Right-click on a multi-selection: everything that applies to all of them. */
+export function bulkMenu(tasks: Task[], anchor?: HTMLElement | null): MenuItem[] {
+  const n = tasks.length;
+  const anyOpen = tasks.some((t) => t.status === "open");
+  const items: W[] = [{ label: `${n} Selected`, disabled: true } as W, SEP as W];
+  items.push(
+    anyOpen
+      ? w({ label: "Mark as Completed", icon: <CheckIcon />, shortcut: "Ctrl+K", onSelect: () => void bulkSetStatus(tasks, "completed") })
+      : w({ label: "Mark as Open", icon: <UndoIcon />, shortcut: "Ctrl+K", onSelect: () => void bulkSetStatus(tasks, "open") }),
+  );
+  if (anyOpen) items.push(w({ label: "Cancel", icon: <CancelIcon />, onSelect: () => void bulkSetStatus(tasks, "canceled") }));
+  items.push(SEP as W);
+  if (anyOpen) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems(tasks, anchor)) }));
+  items.push(...bulkEditItems(tasks, anchor));
+  items.push(w({ label: "Move…", icon: <ArrowRightIcon />, shortcut: "Ctrl+Shift+M", onSelect: () => pick("move", tasks, anchor) }));
+  items.push(SEP as W, w({ label: "Duplicate", icon: <CopyIcon />, shortcut: "Ctrl+D", onSelect: () => void bulkDuplicate(tasks) }));
+  items.push({ label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(`${n} to-dos`, tasksAsText(tasks)) });
+  items.push(SEP as W, w({ label: `Move ${n} to Trash`, icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => void bulkTrash(tasks) }));
+  return guard(items);
+}
+
+function bulkEditItems(tasks: Task[], anchor?: HTMLElement | null): W[] {
+  return [
+    w({ label: "Set Tags…", icon: <TagIcon />, shortcut: "Ctrl+Shift+T", onSelect: () => pick("tags", tasks, anchor) }),
+    w({ label: "Set Deadline…", icon: <FlagIcon />, shortcut: "Ctrl+Shift+D", onSelect: () => pick("deadline", tasks, anchor) }),
+  ];
+}
+
+/** The ••• button in the selection bar, matching Things' menu for selected items. */
+export function bulkMoreMenu(tasks: Task[], anchor?: HTMLElement | null): MenuItem[] {
+  const allDone = tasks.length > 0 && tasks.every((t) => t.status !== "open");
+  return guard([
+    allDone
+      ? w({ label: "Mark as Open", icon: <UndoIcon />, onSelect: () => void bulkSetStatus(tasks, "open") })
+      : w({ label: "Mark as Completed", icon: <CheckIcon />, onSelect: () => void bulkSetStatus(tasks, "completed") }),
+    ...bulkEditItems(tasks, anchor),
+    SEP,
+    w({ label: "Duplicate", icon: <CopyIcon />, onSelect: () => void bulkDuplicate(tasks) }),
+    SEP,
+    { label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(`${tasks.length} to-dos`, tasksAsText(tasks)) },
+  ]);
+}
+
+/** The ••• beside a project's title, like Things. */
+export function projectMenu(p: Task, anchor: HTMLElement | null): MenuItem[] {
+  const s = store();
+  const open = p.status === "open";
+  const one = [p];
+  return guard([
+    open
+      ? w({ label: "Complete Project", icon: <CheckIcon />, onSelect: () => void setStatus(p, "completed") })
+      : w({ label: "Mark Project as Open", icon: <UndoIcon />, onSelect: () => void setStatus(p, "open") }),
+    ...(open ? [w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems(one, anchor)) })] : []),
+    w({ label: p.tagIds.length ? "Edit Tags…" : "Add Tags…", icon: <TagIcon />, onSelect: () => pick("tags", one, anchor) }),
+    w({ label: p.deadline ? "Change Deadline…" : "Add Deadline…", icon: <FlagIcon />, onSelect: () => pick("deadline", one, anchor) }),
+    {
+      label: p.repeat ? `Repeat: ${p.repeat.summary}` : "Repeat…",
+      icon: <RepeatIcon />,
+      disabled: true,
+      hint: "Repeating projects are set up in Things on your iPhone or Mac",
+    },
+    SEP,
+    w({ label: "Move…", icon: <ArrowRightIcon />, onSelect: () => pick("move", one, anchor) }),
+    w({ label: "Duplicate", icon: <CopyIcon />, onSelect: () => void duplicateProject(p) }),
+    w({ label: "Rename…", icon: <PencilIcon />, onSelect: () => renameTask(p) }),
+    w({
+      label: "Delete Project",
+      icon: <TrashIcon />,
+      danger: true,
+      onSelect: async () => {
+        const r = await trash(p);
+        if (r) s.select({ kind: "list", id: "anytime" });
+      },
+    }),
+    SEP,
+    { label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(p.title, projectAsText(p)) },
+  ]);
+}
+
+/** The ••• beside an area's title. */
+export function areaTitleMenu(a: Area): MenuItem[] {
+  const s = store();
+  const items = areaMenu(a).filter((i) => i.separator || i.label !== "Open Area");
+  while (items[0]?.separator) items.shift();
+  const tasks = (s.view?.tasks ?? []).filter((t) => t.areaId === a.id && !t.trashed && t.status === "open" && t.type !== "heading");
+  return [
+    ...items,
+    SEP,
+    {
+      label: "Share…",
+      icon: <ShareIcon />,
+      onSelect: () => {
+        const projects = tasks.filter((t) => t.type === "project");
+        const text = [tasksAsText(tasks.filter((t) => t.type === "task"), a.title), ...projects.map(projectAsText)].join("\n\n");
+        void shareText(a.title, text);
+      },
+    },
+  ];
+}
+
+/** The ••• at the top right of a list: Filter by Tag, Select, Paste, Share. */
+export function listViewMenu(sel: Selection, title: string, usedTags: Tag[], visible: () => Task[]): MenuItem[] {
+  const s = store();
+  const canAdd = !(sel.kind === "list" && (sel.id === "logbook" || sel.id === "trash" || sel.id === "upcoming"));
+  const items: MenuItem[] = [
+    {
+      label: "Filter by Tag",
+      icon: <TagIcon />,
+      disabled: !usedTags.length,
+      hint: usedTags.length ? undefined : "No to-dos here have tags",
+      submenu: [
+        { label: "All", checked: !s.tagFilter || undefined, onSelect: () => s.setTagFilter(null) },
+        SEP,
+        ...usedTags.map((t): MenuItem => ({ label: t.title, icon: <TagIcon />, checked: s.tagFilter === t.id || undefined, onSelect: () => s.setTagFilter(t.id) })),
+      ],
+    },
+    { label: "Select", icon: <SelectIcon />, shortcut: "Ctrl+A", onSelect: () => s.setSelectMode(true) },
+  ];
+  if (canAdd) items.push(w({ label: "Paste", icon: <PasteIcon />, shortcut: "Ctrl+V", hint: "Each line on the clipboard becomes a to-do", onSelect: () => void pasteAsTodos(sel) }));
+  items.push({ label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(title, tasksAsText(visible(), title)) });
   return guard(items);
 }

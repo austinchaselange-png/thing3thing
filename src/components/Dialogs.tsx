@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getBackend } from "../backend";
-import { todayYmd } from "../lib/dates";
+import { reveal } from "../actions";
 import { getThemePref, setThemePref, type ThemePref } from "../lib/theme";
-import { belongsTo, buildIndex, search } from "../lib/lists";
+import { buildIndex, search } from "../lib/lists";
 import { isWriteError, useStore } from "../store";
-import type { Issue, ListId, Selection, Settings, Task } from "../types";
+import type { Issue, ListId, Settings } from "../types";
 import { AreaIcon, CloseIcon, LIST_META, LockIcon, ProgressPie, SearchIcon, TagIcon, WarningIcon } from "./Icons";
 
 export function Modal({ title, onClose, children, width = 480, footer }: { title: string; onClose: () => void; children: ReactNode; width?: number; footer?: ReactNode }) {
@@ -608,21 +608,6 @@ export function QuickFind() {
   const ix = useMemo(() => buildIndex(view), [view]);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
-  const goTask = (t: Task) => {
-    const s = useStore.getState();
-    const today = todayYmd();
-    let sel: Selection = { kind: "list", id: "anytime" };
-    if (t.type === "project") sel = { kind: "project", id: t.id };
-    else if (t.projectId) sel = { kind: "project", id: t.projectId };
-    else {
-      const lists: ListId[] = ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"];
-      const found = lists.find((l) => belongsTo(l, t, ix, today));
-      if (found) sel = { kind: "list", id: found };
-      else if (t.areaId) sel = { kind: "area", id: t.areaId };
-    }
-    s.select(sel);
-    if (t.type !== "project") s.selectTask(t.id);
-  };
   const results: FindResult[] = useMemo(() => {
     const ql = q.trim().toLowerCase();
     if (!ql) return [];
@@ -639,7 +624,7 @@ export function QuickFind() {
         label: t.title,
         icon: t.type === "project" ? <ProgressPie done={0} total={1} color="var(--c-project)" /> : <span className={`mini-check${t.status !== "open" ? " done" : ""}`} />,
         sub: project ?? (t.areaId ? ix.areas.get(t.areaId)?.title : undefined),
-        go: () => goTask(t),
+        go: () => reveal(t),
       });
     }
     return out.slice(0, 40);

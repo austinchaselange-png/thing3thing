@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import { duplicate, moveTo, schedule, toggleComplete, trash } from "./actions";
+import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, pasteAsTodos } from "./actions";
 import { getBackend } from "./backend";
 import { ContextMenu } from "./components/ContextMenu";
 import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
-import { ChevronIcon, CloudIcon, PlusIcon, SearchIcon } from "./components/Icons";
-import { newItemsMenu, taskMenu } from "./components/menus";
+import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, TrashIcon } from "./components/Icons";
+import { bulkMenu, bulkMoreMenu, newItemsMenu, taskMenu } from "./components/menus";
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
 import { TrafficLights } from "./components/WindowControls";
-import { useStore, type PickerState } from "./store";
-import type { ListId } from "./types";
+import { selectedTasks, useMulti, useStore, type PickerState } from "./store";
+import type { ListId, Task } from "./types";
 
 const LIST_KEYS: ListId[] = ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"];
 
@@ -20,7 +20,7 @@ function isTyping(e: KeyboardEvent) {
 }
 
 function visibleTaskIds(): string[] {
-  return [...document.querySelectorAll<HTMLElement>(".groups [data-task-id]")].map((el) => el.dataset.taskId!);
+  return [...document.querySelectorAll<HTMLElement>(".groups .task-row[data-task-id]")].map((el) => el.dataset.taskId!);
 }
 
 function rowFor(id: string | null): HTMLElement | null {
@@ -36,7 +36,11 @@ export function App() {
   const picker = useStore((s) => s.picker);
   const setPicker = useStore((s) => s.openPicker);
   const [scrolled, setScrolled] = useState(false);
-  const pickerTask = picker?.taskId ? view?.tasks.find((t) => t.id === picker.taskId) : undefined;
+  // A picker acts on one to-do, or on every selected one.
+  const pickerTasks: Task[] = view && picker ? (picker.taskIds ?? (picker.taskId ? [picker.taskId] : [])).map((id) => view.tasks.find((t) => t.id === id)).filter((t): t is Task => !!t) : [];
+  const pickerTask = pickerTasks[0];
+  const sameDeadline = pickerTasks.every((t) => t.deadline === pickerTask?.deadline) ? (pickerTask?.deadline ?? null) : null;
+  const pickerTags = commonTags(pickerTasks);
 
   useEffect(() => {
     void useStore.getState().init();
@@ -55,6 +59,8 @@ export function App() {
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       const task = s.selectedId ? s.view?.tasks.find((t) => t.id === s.selectedId) : undefined;
+      // Shortcuts act on every selected to-do.
+      const targets = selectedTasks();
 
       if (ctrl && key === "f") return (e.preventDefault(), s.openDialog({ kind: "quickFind" }));
       if (ctrl && key === ",") return (e.preventDefault(), s.openDialog({ kind: "settings" }));
@@ -64,16 +70,57 @@ export function App() {
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
 
+      if (ctrl && key === "v" && !e.shiftKey) {
+        const sel = s.selection;
+        if (sel.kind === "list" && (sel.id === "logbook" || sel.id === "trash" || sel.id === "upcoming")) return;
+        e.preventDefault();
+        return void pasteAsTodos(sel);
+      }
+      if (ctrl && key === "a") {
+        e.preventDefault();
+        const ids = visibleTaskIds();
+        if (ids.length) s.setSelected(ids, s.selectedId && ids.includes(s.selectedId) ? s.selectedId : ids[0]);
+        return;
+      }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const ids = visibleTaskIds();
         if (!ids.length) return;
         const i = s.selectedId ? ids.indexOf(s.selectedId) : -1;
-        const next = e.key === "ArrowDown" ? Math.min(i + 1, ids.length - 1) : Math.max(i - 1, 0);
-        s.selectTask(ids[i === -1 ? 0 : next]);
+        const next = ids[i === -1 ? 0 : e.key === "ArrowDown" ? Math.min(i + 1, ids.length - 1) : Math.max(i - 1, 0)];
+        if (e.shiftKey && s.anchorId && ids.includes(s.anchorId)) {
+          const a = ids.indexOf(s.anchorId);
+          const b = ids.indexOf(next);
+          s.setSelected(ids.slice(Math.min(a, b), Math.max(a, b) + 1), next);
+        } else if (s.selectMode) {
+          useStore.setState({ selectedId: next });
+        } else {
+          s.selectTask(next);
+        }
         return;
       }
-      if (e.key === "Escape") return s.selectTask(null);
+      if (e.key === "Escape") return s.selectMode ? s.setSelectMode(false) : s.selectTask(null);
+      if (s.selectMode && e.key === " " && task) return (e.preventDefault(), s.toggleSelected(task.id));
+      if (targets.length > 1 || (s.selectMode && targets.length)) {
+        const anchor = rowFor(s.selectedId) ?? rowFor(targets[0].id);
+        const openMany = (kind: PickerState["kind"]) => {
+          e.preventDefault();
+          s.openPicker({ kind, taskId: targets[0].id, taskIds: targets.map((t) => t.id), anchor });
+        };
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) return (e.preventDefault(), anchor && s.openMenu(anchor, bulkMenu(targets, anchor)));
+        if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash(targets, !targets.every((t) => t.trashed)));
+        if (ctrl && key === "d") return (e.preventDefault(), void bulkDuplicate(targets));
+        if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, targets.some((t) => t.status === "open") ? "completed" : "open"));
+        if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule(targets, { kind: "today" }));
+        if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule(targets, { kind: "evening" }));
+        if (ctrl && key === "r") return (e.preventDefault(), void bulkSchedule(targets, { kind: "anytime" }));
+        if (ctrl && key === "o") return (e.preventDefault(), void bulkSchedule(targets, { kind: "someday" }));
+        if (ctrl && key === "s") return openMany("when");
+        if (ctrl && e.shiftKey && key === "m") return openMany("move");
+        if (ctrl && e.shiftKey && key === "d") return openMany("deadline");
+        if (ctrl && e.shiftKey && key === "t") return openMany("tags");
+        return;
+      }
       if (!task) return;
       if (e.key === "Enter") {
         e.preventDefault();
@@ -87,13 +134,13 @@ export function App() {
         if (row) s.openMenu(row, taskMenu(task));
         return;
       }
-      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void trash(task, !task.trashed));
-      if (ctrl && key === "d" && task.type === "task" && s.canWrite()) return (e.preventDefault(), void duplicate(task));
-      if (ctrl && key === "k") return (e.preventDefault(), void toggleComplete(task));
-      if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void schedule(task, { kind: "today" }));
-      if (ctrl && key === "e") return (e.preventDefault(), void schedule(task, { kind: "evening" }));
-      if (ctrl && key === "r") return (e.preventDefault(), void schedule(task, { kind: "anytime" }));
-      if (ctrl && key === "o") return (e.preventDefault(), void schedule(task, { kind: "someday" }));
+      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash([task], !task.trashed));
+      if (ctrl && key === "d" && task.type === "task" && s.canWrite()) return (e.preventDefault(), void bulkDuplicate([task]));
+      if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "open" ? "completed" : "open"));
+      if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule([task], { kind: "today" }));
+      if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule([task], { kind: "evening" }));
+      if (ctrl && key === "r") return (e.preventDefault(), void bulkSchedule([task], { kind: "anytime" }));
+      if (ctrl && key === "o") return (e.preventDefault(), void bulkSchedule([task], { kind: "someday" }));
       const open = (kind: PickerState["kind"]) => {
         e.preventDefault();
         s.openPicker({ kind, taskId: task.id, anchor: rowFor(task.id) });
@@ -154,25 +201,28 @@ export function App() {
         <ReadOnlyBanner />
         {app.account.mode === "signedOut" ? <SignedOut /> : <ListView />}
         {app.account.mode !== "signedOut" && <AddBubble disabled={!writable} />}
+        {app.account.mode !== "signedOut" && <SelectionBar />}
       </main>
 
       {picker?.kind === "when" && pickerTask && (
-        <WhenPicker anchor={picker.anchor} task={pickerTask} onPick={(w, r) => void schedule(pickerTask, w, r)} onClose={() => setPicker(null)} />
-      )}
-      {picker?.kind === "move" && pickerTask && <MovePicker anchor={picker.anchor} task={pickerTask} onPick={(t) => void moveTo(pickerTask, t)} onClose={() => setPicker(null)} />}
-      {picker?.kind === "deadline" && pickerTask && (
-        <DeadlinePicker
+        <WhenPicker
           anchor={picker.anchor}
-          value={pickerTask.deadline}
-          onPick={(d) => void useStore.getState().apply({ type: "updateTask", id: pickerTask.id, baseRev: pickerTask.rev, deadline: d })}
+          task={pickerTasks.length === 1 ? pickerTask : undefined}
+          onPick={(w, r) => void bulkSchedule(pickerTasks, w, r)}
           onClose={() => setPicker(null)}
         />
+      )}
+      {picker?.kind === "move" && pickerTask && (
+        <MovePicker anchor={picker.anchor} task={pickerTasks.find((t) => t.type === "task") ?? pickerTask} onPick={(t) => void bulkMove(pickerTasks, t)} onClose={() => setPicker(null)} />
+      )}
+      {picker?.kind === "deadline" && pickerTask && (
+        <DeadlinePicker anchor={picker.anchor} value={sameDeadline} onPick={(d) => void bulkDeadline(pickerTasks, d)} onClose={() => setPicker(null)} />
       )}
       {picker?.kind === "tags" && pickerTask && (
         <TagPicker
           anchor={picker.anchor}
-          value={pickerTask.tagIds}
-          onChange={(ids) => void useStore.getState().apply({ type: "updateTask", id: pickerTask.id, baseRev: pickerTask.rev, tagIds: ids })}
+          value={pickerTags}
+          onChange={(ids) => void bulkTags(pickerTasks, ids.filter((id) => !pickerTags.includes(id)), pickerTags.filter((id) => !ids.includes(id)))}
           onClose={() => setPicker(null)}
         />
       )}
@@ -195,10 +245,43 @@ export function App() {
   );
 }
 
+/** Things' bottom bar while several to-dos are selected: When, Move, Delete, •••. */
+function SelectionBar() {
+  const multi = useMulti();
+  const count = useStore((s) => s.selectedIds.length);
+  const writable = useStore((s) => !!s.app?.canWrite);
+  if (!multi) return null;
+  const tasks = () => selectedTasks();
+  const open = (kind: PickerState["kind"]) => (e: React.MouseEvent<HTMLElement>) => {
+    const ts = tasks();
+    if (ts.length) useStore.getState().openPicker({ kind, taskId: ts[0].id, taskIds: ts.map((t) => t.id), anchor: e.currentTarget });
+  };
+  const none = count === 0;
+  return (
+    <div className="selection-bar" role="toolbar" aria-label="Selected to-dos">
+      <span className="sel-count">{none ? "Select to-dos" : `${count} selected`}</span>
+      <button className="sb-btn" disabled={none || !writable} onClick={open("when")}>
+        <CalendarIcon size={15} /> When
+      </button>
+      <button className="sb-btn" disabled={none || !writable} onClick={open("move")}>
+        <ArrowRightIcon size={15} /> Move
+      </button>
+      <button className="sb-btn" disabled={none || !writable} onClick={() => void bulkTrash(tasks())}>
+        <TrashIcon size={15} /> Delete
+      </button>
+      <button className="sb-btn icon" aria-label="More" disabled={none} onClick={(e) => useStore.getState().openMenu(e.currentTarget, bulkMoreMenu(tasks(), e.currentTarget))}>
+        <MoreIcon size={16} />
+      </button>
+    </div>
+  );
+}
+
 /** Floating “new” button in the bottom-left corner. Right-click for more. */
 function AddBubble({ disabled }: { disabled: boolean }) {
   const selection = useStore((s) => s.selection);
+  const multi = useMulti();
   const blocked = selection.kind === "list" && (selection.id === "logbook" || selection.id === "trash");
+  if (multi) return null;
   return (
     <button
       className="add-bubble"
