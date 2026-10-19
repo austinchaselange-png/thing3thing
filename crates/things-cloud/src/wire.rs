@@ -43,7 +43,7 @@ impl Family {
 }
 
 /// Newest version of each kind that is known to be written by the official
-/// apps and that Tings 3 writes itself.
+/// apps and that Things 3 writes itself.
 const NEWEST_KNOWN: [(&str, Family, u32); 5] = [
     ("Task", Family::Task, 6),
     ("ChecklistItem", Family::ChecklistItem, 3),
@@ -63,6 +63,24 @@ fn newer_version(kind: &str) -> Option<(Family, u32)> {
         let v: u32 = digits.parse().ok()?;
         (v > *newest).then_some((*family, v))
     })
+}
+
+/// The kind to write for `family`, given the newer kinds an account uses:
+/// the newest version seen there, otherwise the validated default.
+pub fn write_kind_for<'a>(family: Family, seen: impl IntoIterator<Item = &'a String>) -> String {
+    let default = match family {
+        Family::Task => kind::TASK,
+        Family::ChecklistItem => kind::CHECKLIST_ITEM,
+        Family::Area => kind::AREA,
+        Family::Tag => kind::TAG,
+        Family::Tombstone => kind::TOMBSTONE,
+        Family::Settings => return String::new(),
+    };
+    seen.into_iter()
+        .filter_map(|k| newer_version(k).filter(|(f, _)| *f == family).map(|(_, v)| (v, k.clone())))
+        .max()
+        .map(|(_, k)| k)
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// True for kinds newer than the ones the reference implementation validated.
@@ -107,13 +125,30 @@ struct RawEnvelope {
     p: Value,
 }
 
+/// Kind given to envelopes that can't be decoded at all. It matches no
+/// family, so the state layer skips and reports such items.
+pub const UNREADABLE_KIND: &str = "(unreadable)";
+
 /// Parses one outer entry of an `items` response (`{uuid: envelope, …}`).
+///
+/// Never fails on a single odd envelope: it becomes an item of
+/// [`UNREADABLE_KIND`] (or keeps its kind with an impossible action), which
+/// is skipped and reported later, so the sync cursor can move past it.
 pub fn parse_entry(entry: &Value) -> Result<Vec<Item>, String> {
-    let map = entry.as_object().ok_or("history entry is not an object")?;
+    let Some(map) = entry.as_object() else {
+        return Ok(vec![Item { uuid: String::new(), kind: UNREADABLE_KIND.into(), action: u8::MAX, payload: Value::Null }]);
+    };
     let mut items = Vec::with_capacity(map.len());
     for (uuid, env) in map {
-        let raw: RawEnvelope = serde_json::from_value(env.clone()).map_err(|e| format!("item {uuid}: {e}"))?;
-        items.push(Item { uuid: uuid.clone(), kind: raw.e, action: raw.t, payload: raw.p });
+        let item = match serde_json::from_value::<RawEnvelope>(env.clone()) {
+            Ok(raw) => Item { uuid: uuid.clone(), kind: raw.e, action: raw.t, payload: raw.p },
+            Err(e) => {
+                log::warn!("history item {uuid} could not be decoded: {e}");
+                let kind = env.get("e").and_then(Value::as_str).unwrap_or(UNREADABLE_KIND).to_string();
+                Item { uuid: uuid.clone(), kind, action: u8::MAX, payload: Value::Null }
+            }
+        };
+        items.push(item);
     }
     Ok(items)
 }
@@ -133,6 +168,15 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn odd_envelopes_become_skippable_items() {
+        let items = parse_entry(&json!({"A":{"t":0,"e":"Task6","p":{}},"B":{"t":900,"e":"Task6"},"C":{"x":1}})).unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!((items[1].kind.as_str(), items[1].action), ("Task6", u8::MAX));
+        assert_eq!(items[2].kind, UNREADABLE_KIND);
+        assert_eq!(parse_entry(&json!(5)).unwrap()[0].kind, UNREADABLE_KIND);
+    }
+
+    #[test]
     fn families_and_settings() {
         assert_eq!(Family::of("Task6"), Some(Family::Task));
         assert_eq!(Family::of("Tag3"), Some(Family::Tag));
@@ -145,6 +189,11 @@ mod tests {
         assert!(!is_unvalidated_kind("Task"));
         assert_eq!(Family::of("Taskforce"), None, "unrelated kinds still fail closed");
         assert_eq!(Family::of("Widget1"), None);
+        let seen = vec!["Task7".to_string(), "Task8".to_string(), "Area4".to_string()];
+        assert_eq!(write_kind_for(Family::Task, &seen), "Task8");
+        assert_eq!(write_kind_for(Family::Area, &seen), "Area4");
+        assert_eq!(write_kind_for(Family::Tag, &seen), "Tag4");
+        assert_eq!(write_kind_for(Family::Task, &Vec::<String>::new()), "Task6");
         assert!(is_legacy_kind("Task4"));
         assert!(!is_legacy_kind("Task6"));
     }
@@ -158,6 +207,6 @@ mod tests {
         assert_eq!(items[1].payload, Value::Null);
         let body = commit_body(&items[..1]);
         assert_eq!(body, json!({"A": {"t": 0, "e": "Area3", "p": {"tt": "Home"}}}));
-        assert!(parse_entry(&json!([1])).is_err());
+        assert_eq!(parse_entry(&json!([1])).unwrap()[0].kind, UNREADABLE_KIND, "skipped later, not fatal");
     }
 }

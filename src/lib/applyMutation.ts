@@ -221,6 +221,49 @@ export function applyMutation(snap: Snapshot, m: Mutation, opts: { today?: strin
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       tags = tags.filter((t) => t.id !== m.id);
       break;
+    case "reorder": {
+      if (!m.items.length) throw new MutationError("invalid", "Nothing to reorder.");
+      for (const it of m.items) {
+        const t = tasks.get(it.id);
+        if (t) {
+          tasks.set(t.id, { ...t, [m.key]: it.value, rev });
+        } else if (m.key === "index" && areas.some((a) => a.id === it.id)) {
+          areas = areas.map((a) => (a.id === it.id ? { ...a, index: it.value, rev } : a));
+        } else if (m.key === "index" && checklist.some((c) => c.id === it.id)) {
+          checklist = checklist.map((c) => (c.id === it.id ? { ...c, index: it.value, rev } : c));
+        } else {
+          throw new MutationError("notFound", "This item no longer exists.");
+        }
+      }
+      break;
+    }
+    case "setTagShortcut": {
+      const sh = m.shortcut?.trim() || null;
+      if (sh && [...sh].length !== 1) throw new MutationError("invalid", "A tag shortcut is a single key.");
+      if (!tags.some((t) => t.id === m.id)) throw new MutationError("notFound", "This tag no longer exists.");
+      tags = tags.map((t) => (t.id === m.id ? { ...t, shortcut: sh, rev } : t));
+      break;
+    }
+    case "deleteTasks": {
+      if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
+      if (!m.ids.length) throw new MutationError("invalid", "Nothing to delete.");
+      const inTrash = (t: Task): boolean => {
+        if (t.trashed) return true;
+        const parents = [t.headingId, t.projectId].map((id) => (id ? tasks.get(id) : undefined));
+        return parents.some((p) => !!p && (p.trashed || inTrash(p)));
+      };
+      const doomed = new Set<string>();
+      for (const id of m.ids) {
+        const t = get(id);
+        if (!inTrash(t)) throw new MutationError("invalid", "Only items in the Trash can be deleted permanently.");
+        doomed.add(id);
+        // A project or heading takes its contents with it.
+        for (const c of tasks.values()) if (c.projectId === id || c.headingId === id) doomed.add(c.id);
+      }
+      for (const id of doomed) tasks.delete(id);
+      checklist = checklist.filter((c) => !doomed.has(c.taskId));
+      break;
+    }
     case "stopRepeating": {
       if (m.confirm !== "DELETE") throw new MutationError("confirmationRequired", "Type DELETE to confirm.");
       put(get(m.id), { repeat: null });

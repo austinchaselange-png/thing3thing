@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { moveTo, schedule, toggleComplete, trash } from "./actions";
+import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, copyText, deletePermanently, pasteAsTodos, tasksAsText } from "./actions";
 import { getBackend } from "./backend";
-import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, QuickFind, ReadOnlyBanner, SettingsDialog, Toasts, WriteOptInDialog } from "./components/Dialogs";
-import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, HeadingIcon, PlusIcon, SearchIcon, TrashIcon } from "./components/Icons";
+import { ContextMenu } from "./components/ContextMenu";
+import { KeyHints } from "./components/KeyHints";
+import { ReminderBar, type DueReminder } from "./components/ReminderBar";
+import { drag, endDrag, PLUS_MIME, startDrag } from "./dnd";
+import { handleLink } from "./links";
+import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
+import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, SidebarIcon, TrashIcon, UndoIcon } from "./components/Icons";
+import { bulkMenu, bulkMoreMenu, newItemsMenu, taskMenu } from "./components/menus";
 import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
 import { TrafficLights } from "./components/WindowControls";
-import { useStore } from "./store";
+import { selectedTasks, useMulti, useStore, type PickerState } from "./store";
 import type { ListId, Task } from "./types";
-
-type KbPicker = { kind: "when" | "move" | "deadline" | "tags" | "heading"; taskId: string | null; anchor: HTMLElement | null } | null;
 
 const LIST_KEYS: ListId[] = ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"];
 
@@ -20,7 +24,7 @@ function isTyping(e: KeyboardEvent) {
 }
 
 function visibleTaskIds(): string[] {
-  return [...document.querySelectorAll<HTMLElement>(".groups [data-task-id]")].map((el) => el.dataset.taskId!);
+  return [...document.querySelectorAll<HTMLElement>(".groups .task-row[data-task-id]")].map((el) => el.dataset.taskId!);
 }
 
 function rowFor(id: string | null): HTMLElement | null {
@@ -32,16 +36,37 @@ export function App() {
   const loadError = useStore((s) => s.loadError);
   const dialog = useStore((s) => s.dialog);
   const selection = useStore((s) => s.selection);
-  const selectedId = useStore((s) => s.selectedId);
   const view = useStore((s) => s.view);
-  const [picker, setPicker] = useState<KbPicker>(null);
+  const picker = useStore((s) => s.picker);
+  const sidebarHidden = useStore((s) => s.sidebarHidden);
+  const setPicker = useStore((s) => s.openPicker);
   const [scrolled, setScrolled] = useState(false);
-  const selected: Task | undefined = selectedId ? view?.tasks.find((t) => t.id === selectedId) : undefined;
-  const pickerTask = picker?.taskId ? view?.tasks.find((t) => t.id === picker.taskId) : undefined;
+  // A picker acts on one to-do, or on every selected one.
+  const pickerTasks: Task[] = view && picker ? (picker.taskIds ?? (picker.taskId ? [picker.taskId] : [])).map((id) => view.tasks.find((t) => t.id === id)).filter((t): t is Task => !!t) : [];
+  const pickerTask = pickerTasks[0];
+  const sameDeadline = pickerTasks.every((t) => t.deadline === pickerTask?.deadline) ? (pickerTask?.deadline ?? null) : null;
+  const pickerTags = commonTags(pickerTasks);
+
+  const [reminders, setReminders] = useState<DueReminder[]>([]);
 
   useEffect(() => {
     void useStore.getState().init();
   }, []);
+
+  // things:/// links (launch, second launch, jump list) and reminders going off.
+  useEffect(() => {
+    if (!app) return;
+    const backend = getBackend();
+    void backend.takeLinks().then((links) => links.forEach((l) => void handleLink(l)));
+    const offLink = backend.onLink((l) => void handleLink(l));
+    const offReminder = backend.onReminder((r) => setReminders((list) => [...list.filter((x) => x.taskId !== r.taskId), r]));
+    return () => {
+      offLink();
+      offReminder();
+    };
+    // Once the first state has loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!app]);
 
   useEffect(() => setScrolled(false), [selection]);
 
@@ -52,28 +77,110 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = useStore.getState();
-      if (s.dialog || document.querySelector(".popover-layer")) return;
+      if (s.dialog || s.menu || document.querySelector(".popover-layer")) return;
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       const task = s.selectedId ? s.view?.tasks.find((t) => t.id === s.selectedId) : undefined;
+      // Shortcuts act on every selected to-do.
+      const targets = selectedTasks();
 
       if (ctrl && key === "f") return (e.preventDefault(), s.openDialog({ kind: "quickFind" }));
       if (ctrl && key === ",") return (e.preventDefault(), s.openDialog({ kind: "settings" }));
+      if (ctrl && (key === "/" || key === "?")) return (e.preventDefault(), s.openDialog({ kind: "shortcuts" }));
       if (ctrl && key === "n") return (e.preventDefault(), window.dispatchEvent(new Event("tings3:new-task")));
       if (e.key === "F5") return (e.preventDefault(), void getBackend().syncNow());
+      if (ctrl && e.altKey && key === "s") return (e.preventDefault(), s.toggleSidebar());
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
 
+      // Tag shortcuts: Alt+key adds/removes the tag on the selection, or filters the list.
+      if (e.altKey && !ctrl && e.key.length === 1) {
+        const tag = s.view?.tags.find((t) => t.shortcut && t.shortcut.toLowerCase() === e.key.toLowerCase());
+        if (tag) {
+          e.preventDefault();
+          if (!targets.length) return s.setTagFilter(s.tagFilter === tag.id ? null : tag.id);
+          const all = targets.every((t) => t.tagIds.includes(tag.id));
+          return void bulkTags(targets, all ? [] : [tag.id], all ? [tag.id] : []);
+        }
+      }
+
+      // Undo / Redo (text fields keep their own).
+      if (ctrl && !e.altKey && key === "z") return (e.preventDefault(), void (e.shiftKey ? s.redo() : s.undo()));
+      if (ctrl && key === "y") return (e.preventDefault(), void s.redo());
+      // Ctrl+↑/↓ moves the selection; with Alt, to the top or bottom.
+      if (ctrl && (e.key === "ArrowUp" || e.key === "ArrowDown") && targets.length) {
+        e.preventDefault();
+        const dir = e.key === "ArrowUp" ? (e.altKey ? "top" : "up") : e.altKey ? "bottom" : "down";
+        return void window.dispatchEvent(new CustomEvent("tings3:nudge", { detail: dir }));
+      }
+      if (ctrl && key === "c" && targets.length && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        return void copyText(tasksAsText(targets), targets.length === 1 ? "Copied" : `Copied ${targets.length} to-dos`);
+      }
+      // Space: a new to-do right below the selection, like Things.
+      if (e.key === " " && !ctrl && !e.altKey && !s.selectMode) {
+        e.preventDefault();
+        return void window.dispatchEvent(new CustomEvent("tings3:new-task", { detail: { after: s.selectedId ?? undefined } }));
+      }
+      if (ctrl && key === "v" && !e.shiftKey) {
+        const sel = s.selection;
+        if (sel.kind === "list" && (sel.id === "logbook" || sel.id === "trash" || sel.id === "upcoming")) return;
+        e.preventDefault();
+        return void pasteAsTodos(sel);
+      }
+      if (ctrl && key === "a") {
+        e.preventDefault();
+        const ids = visibleTaskIds();
+        if (ids.length) s.setSelected(ids, s.selectedId && ids.includes(s.selectedId) ? s.selectedId : ids[0]);
+        return;
+      }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const ids = visibleTaskIds();
         if (!ids.length) return;
         const i = s.selectedId ? ids.indexOf(s.selectedId) : -1;
-        const next = e.key === "ArrowDown" ? Math.min(i + 1, ids.length - 1) : Math.max(i - 1, 0);
-        s.selectTask(ids[i === -1 ? 0 : next]);
+        const next = ids[i === -1 ? 0 : e.key === "ArrowDown" ? Math.min(i + 1, ids.length - 1) : Math.max(i - 1, 0)];
+        if (e.shiftKey && s.anchorId && ids.includes(s.anchorId)) {
+          const a = ids.indexOf(s.anchorId);
+          const b = ids.indexOf(next);
+          s.setSelected(ids.slice(Math.min(a, b), Math.max(a, b) + 1), next);
+        } else if (s.selectMode) {
+          useStore.setState({ selectedId: next });
+        } else {
+          s.selectTask(next);
+        }
         return;
       }
-      if (e.key === "Escape") return s.selectTask(null);
+      if (e.key === "Escape") return s.selectMode ? s.setSelectMode(false) : s.selectTask(null);
+      if (s.selectMode && e.key === " " && task) return (e.preventDefault(), s.toggleSelected(task.id));
+      if (targets.length > 1 || (s.selectMode && targets.length)) {
+        const anchor = rowFor(s.selectedId) ?? rowFor(targets[0].id);
+        const openMany = (kind: PickerState["kind"]) => {
+          e.preventDefault();
+          s.openPicker({ kind, taskId: targets[0].id, taskIds: targets.map((t) => t.id), anchor });
+        };
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) return (e.preventDefault(), anchor && s.openMenu(anchor, bulkMenu(targets, anchor)));
+        if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash(targets));
+        if (ctrl && key === "d") return (e.preventDefault(), void bulkDuplicate(targets));
+        if (ctrl && e.altKey && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, "canceled"));
+        if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus(targets, targets.some((t) => t.status === "open") ? "completed" : "open"));
+        if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule(targets, { kind: "today" }));
+        if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule(targets, { kind: "evening" }));
+        if (ctrl && key === "r") return (e.preventDefault(), void bulkSchedule(targets, { kind: "anytime" }));
+        if (ctrl && key === "o") return (e.preventDefault(), void bulkSchedule(targets, { kind: "someday" }));
+        if (ctrl && key === "s") return openMany("when");
+        if (ctrl && e.shiftKey && key === "m") return openMany("move");
+        if (ctrl && e.shiftKey && key === "d") return openMany("deadline");
+        if (ctrl && e.shiftKey && key === "t") return openMany("tags");
+        return;
+      }
+      // Type Travel: start typing anywhere to jump to a list, project or to-do.
+      if (!task || !ctrl) {
+        if (e.key.length === 1 && /\S/.test(e.key) && !ctrl && !e.altKey) {
+          e.preventDefault();
+          return s.openDialog({ kind: "quickFind", initial: e.key });
+        }
+      }
       if (!task) return;
       if (e.key === "Enter") {
         e.preventDefault();
@@ -81,15 +188,23 @@ export function App() {
         else s.edit(task.id);
         return;
       }
-      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void trash(task, !task.trashed));
-      if (ctrl && key === "k") return (e.preventDefault(), void toggleComplete(task));
-      if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void schedule(task, { kind: "today" }));
-      if (ctrl && key === "e") return (e.preventDefault(), void schedule(task, { kind: "evening" }));
-      if (ctrl && key === "r") return (e.preventDefault(), void schedule(task, { kind: "anytime" }));
-      if (ctrl && key === "o") return (e.preventDefault(), void schedule(task, { kind: "someday" }));
-      const open = (kind: NonNullable<KbPicker>["kind"]) => {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault();
-        setPicker({ kind, taskId: task.id, anchor: rowFor(task.id) });
+        const row = rowFor(task.id);
+        if (row) s.openMenu(row, taskMenu(task));
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") return (e.preventDefault(), void bulkTrash([task]));
+      if (ctrl && key === "d" && task.type === "task" && s.canWrite()) return (e.preventDefault(), void bulkDuplicate([task]));
+      if (ctrl && e.altKey && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "canceled" ? "open" : "canceled"));
+      if (ctrl && key === "k") return (e.preventDefault(), void bulkSetStatus([task], task.status === "open" ? "completed" : "open"));
+      if (ctrl && !e.shiftKey && key === "t") return (e.preventDefault(), void bulkSchedule([task], { kind: "today" }));
+      if (ctrl && key === "e") return (e.preventDefault(), void bulkSchedule([task], { kind: "evening" }));
+      if (ctrl && key === "r") return (e.preventDefault(), void bulkSchedule([task], { kind: "anytime" }));
+      if (ctrl && key === "o") return (e.preventDefault(), void bulkSchedule([task], { kind: "someday" }));
+      const open = (kind: PickerState["kind"]) => {
+        e.preventDefault();
+        s.openPicker({ kind, taskId: task.id, anchor: rowFor(task.id) });
       };
       if (ctrl && key === "s") return open("when");
       if (ctrl && e.shiftKey && key === "m") return open("move");
@@ -106,7 +221,7 @@ export function App() {
         <div className="splash-top" data-tauri-drag-region>
           <TrafficLights />
         </div>
-        <h1>Tings 3 couldn't start</h1>
+        <h1>Things 3 couldn't start</h1>
         <p className="error-text">{loadError}</p>
         <button className="btn primary" onClick={() => void useStore.getState().init()}>
           Try again
@@ -125,13 +240,15 @@ export function App() {
     );
 
   const writable = app.canWrite;
-  const inProject = selection.kind === "project";
 
   return (
-    <div className="app">
-      <Sidebar />
+    <div className={`app${sidebarHidden ? " no-sidebar" : ""}`}>
+      {!sidebarHidden && <Sidebar />}
       <main className="main" onScrollCapture={(e) => (e.target as HTMLElement).classList?.contains("list-view") && setScrolled((e.target as HTMLElement).scrollTop > 44)}>
         <header className={`topbar${scrolled ? " scrolled" : ""}`} data-tauri-drag-region>
+          <button className="icon-btn sidebar-toggle" title={sidebarHidden ? "Show Sidebar (Ctrl+Alt+S)" : "Hide Sidebar (Ctrl+Alt+S)"} aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"} onClick={() => useStore.getState().toggleSidebar()}>
+            <SidebarIcon />
+          </button>
           <span className="tb-title" data-tauri-drag-region>
             {app.account.mode !== "signedOut" && selectionTitle(selection, view)}
           </span>
@@ -143,67 +260,124 @@ export function App() {
           </button>
           <TrafficLights />
         </header>
+        <ReminderBar items={reminders} onDismiss={(id) => setReminders((list) => list.filter((r) => r.taskId !== id))} />
+        <SyncErrorBanner />
         <IssueBanner />
         <ReadOnlyBanner />
         {app.account.mode === "signedOut" ? <SignedOut /> : <ListView />}
-        <footer className="toolbar" role="toolbar" aria-label="Actions">
-          <button className="tool" title="New To-Do (Ctrl+N)" aria-label="New To-Do" disabled={!writable} onClick={() => window.dispatchEvent(new Event("tings3:new-task"))}>
-            <PlusIcon />
-          </button>
-          {inProject && (
-            <button className="tool" title="New Heading" aria-label="New Heading" disabled={!writable} onClick={(e) => setPicker({ kind: "heading", taskId: null, anchor: e.currentTarget })}>
-              <HeadingIcon />
-            </button>
-          )}
-          <button className="tool" title="When (Ctrl+S)" aria-label="When" disabled={!writable || !selected} onClick={(e) => selected && setPicker({ kind: "when", taskId: selected.id, anchor: e.currentTarget })}>
-            <CalendarIcon />
-          </button>
-          <button className="tool" title="Move (Ctrl+Shift+M)" aria-label="Move" disabled={!writable || !selected} onClick={(e) => selected && setPicker({ kind: "move", taskId: selected.id, anchor: e.currentTarget })}>
-            <ArrowRightIcon />
-          </button>
-          {selected?.trashed ? (
-            <button className="tool text" disabled={!writable} onClick={() => void trash(selected, false)}>
-              Restore
-            </button>
-          ) : (
-            <button className="tool" title="Move to Trash (Delete)" aria-label="Move to Trash" disabled={!writable || !selected} onClick={() => selected && void trash(selected)}>
-              <TrashIcon />
-            </button>
-          )}
-        </footer>
+        {app.account.mode !== "signedOut" && <AddBubble disabled={!writable} />}
+        {app.account.mode !== "signedOut" && <SelectionBar />}
       </main>
 
       {picker?.kind === "when" && pickerTask && (
-        <WhenPicker anchor={picker.anchor} task={pickerTask} onPick={(w, r) => void schedule(pickerTask, w, r)} onClose={() => setPicker(null)} />
-      )}
-      {picker?.kind === "move" && pickerTask && <MovePicker anchor={picker.anchor} task={pickerTask} onPick={(t) => void moveTo(pickerTask, t)} onClose={() => setPicker(null)} />}
-      {picker?.kind === "deadline" && pickerTask && (
-        <DeadlinePicker
+        <WhenPicker
           anchor={picker.anchor}
-          value={pickerTask.deadline}
-          onPick={(d) => void useStore.getState().apply({ type: "updateTask", id: pickerTask.id, baseRev: pickerTask.rev, deadline: d })}
+          task={pickerTasks.length === 1 ? pickerTask : undefined}
+          onPick={(w, r) => void bulkSchedule(pickerTasks, w, r)}
           onClose={() => setPicker(null)}
         />
+      )}
+      {picker?.kind === "move" && pickerTask && (
+        <MovePicker anchor={picker.anchor} task={pickerTasks.find((t) => t.type === "task") ?? pickerTask} onPick={(t) => void bulkMove(pickerTasks, t)} onClose={() => setPicker(null)} />
+      )}
+      {picker?.kind === "deadline" && pickerTask && (
+        <DeadlinePicker anchor={picker.anchor} value={sameDeadline} onPick={(d) => void bulkDeadline(pickerTasks, d)} onClose={() => setPicker(null)} />
       )}
       {picker?.kind === "tags" && pickerTask && (
         <TagPicker
           anchor={picker.anchor}
-          value={pickerTask.tagIds}
-          onChange={(ids) => void useStore.getState().apply({ type: "updateTask", id: pickerTask.id, baseRev: pickerTask.rev, tagIds: ids })}
+          value={pickerTags}
+          onChange={(ids) => void bulkTags(pickerTasks, ids.filter((id) => !pickerTags.includes(id)), pickerTags.filter((id) => !ids.includes(id)))}
           onClose={() => setPicker(null)}
         />
       )}
-      {picker?.kind === "heading" && selection.kind === "project" && <NewHeading anchor={picker.anchor} projectId={selection.id} onClose={() => setPicker(null)} />}
+      {picker?.kind === "heading" && (picker.projectId ?? (selection.kind === "project" ? selection.id : null)) && (
+        <NewHeading anchor={picker.anchor} projectId={(picker.projectId ?? (selection.kind === "project" ? selection.id : ""))!} onClose={() => setPicker(null)} />
+      )}
 
       {dialog?.kind === "settings" && <SettingsDialog tab={dialog.tab} />}
-      {dialog?.kind === "quickFind" && <QuickFind />}
+      {dialog?.kind === "quickFind" && <QuickFind initial={dialog.initial} />}
       {dialog?.kind === "writeOptIn" && <WriteOptInDialog />}
       {dialog?.kind === "destructiveOptIn" && <WriteOptInDialog destructive />}
       {dialog?.kind === "conflict" && <ConflictDialog mutation={dialog.mutation} fields={dialog.error.fields ?? []} />}
       {dialog?.kind === "confirm" && <ConfirmDialog {...dialog} />}
       {dialog?.kind === "issue" && <IssueDialog issue={dialog.issue} />}
+      {dialog?.kind === "prompt" && <PromptDialog {...dialog} />}
+      {dialog?.kind === "shortcuts" && <ShortcutsDialog />}
+      <ContextMenu />
       <Toasts />
+      <KeyHints />
     </div>
+  );
+}
+
+/** Things' bottom bar while several to-dos are selected: When, Move, Delete, •••. */
+function SelectionBar() {
+  const multi = useMulti();
+  const count = useStore((s) => s.selectedIds.length);
+  const writable = useStore((s) => !!s.app?.canWrite);
+  const inTrash = useStore((s) => s.selection.kind === "list" && s.selection.id === "trash");
+  if (!multi) return null;
+  const tasks = () => selectedTasks();
+  const open = (kind: PickerState["kind"]) => (e: React.MouseEvent<HTMLElement>) => {
+    const ts = tasks();
+    if (ts.length) useStore.getState().openPicker({ kind, taskId: ts[0].id, taskIds: ts.map((t) => t.id), anchor: e.currentTarget });
+  };
+  const none = count === 0;
+  if (inTrash)
+    return (
+      <div className="selection-bar" role="toolbar" aria-label="Selected to-dos">
+        <span className="sel-count">{none ? "Select to-dos" : `${count} selected`}</span>
+        <button className="sb-btn" disabled={none || !writable} onClick={() => void bulkTrash(tasks(), false)}>
+          <UndoIcon size={15} /> Put Back
+        </button>
+        <button className="sb-btn danger" disabled={none || !writable} onClick={() => deletePermanently(tasks())}>
+          <TrashIcon size={15} /> Delete
+        </button>
+      </div>
+    );
+  return (
+    <div className="selection-bar" role="toolbar" aria-label="Selected to-dos">
+      <span className="sel-count">{none ? "Select to-dos" : `${count} selected`}</span>
+      <button className="sb-btn" disabled={none || !writable} onClick={open("when")}>
+        <CalendarIcon size={15} /> When
+      </button>
+      <button className="sb-btn" disabled={none || !writable} onClick={open("move")}>
+        <ArrowRightIcon size={15} /> Move
+      </button>
+      <button className="sb-btn" disabled={none || !writable} onClick={() => void bulkTrash(tasks())}>
+        <TrashIcon size={15} /> Delete
+      </button>
+      <button className="sb-btn icon" aria-label="More" disabled={none} onClick={(e) => useStore.getState().openMenu(e.currentTarget, bulkMoreMenu(tasks(), e.currentTarget))}>
+        <MoreIcon size={16} />
+      </button>
+    </div>
+  );
+}
+
+/** Floating “new” button in the bottom-left corner. Right-click for more. */
+function AddBubble({ disabled }: { disabled: boolean }) {
+  const selection = useStore((s) => s.selection);
+  const multi = useMulti();
+  const blocked = selection.kind === "list" && (selection.id === "logbook" || selection.id === "trash");
+  if (multi) return null;
+  return (
+    <button
+      className="add-bubble"
+      aria-label="New To-Do"
+      title={disabled ? "Read-only" : blocked ? "Pick a list to add to-dos" : "New To-Do (Ctrl+N). Drag it to where the to-do should go; right-click for more"}
+      disabled={disabled || blocked}
+      draggable={!disabled}
+      onDragStart={(e) => startDrag("plus", [], e, PLUS_MIME)}
+      onDragEnd={() => drag.kind === "plus" && endDrag()}
+      onClick={() => window.dispatchEvent(new Event("tings3:new-task"))}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        useStore.getState().openMenu(e, newItemsMenu(selection));
+      }}
+    >
+      <PlusIcon size={20} />
+    </button>
   );
 }
 
@@ -226,7 +400,7 @@ function SignedOut() {
   return (
     <div className="welcome">
       <img className="welcome-icon" src="/app-icon.png" alt="" />
-      <h1>Welcome to Tings 3</h1>
+      <h1>Welcome to Things 3</h1>
       <p className="lead">A calm, Things-style task manager for Windows. Keep your to-dos on this PC, or sync them with Things on your iPhone.</p>
       <div className="card choice-list">
         <button className="choice" onClick={() => openDialog({ kind: "settings", tab: "account" })}>

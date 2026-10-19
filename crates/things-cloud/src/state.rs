@@ -167,6 +167,10 @@ pub struct State {
     /// Field names in those items that were unknown or had an unexpected type
     /// and were therefore ignored. Names only — never values.
     pub unfamiliar_fields: BTreeMap<String, BTreeSet<String>>,
+    /// Items that could not be read at all (unknown kind or action, or no
+    /// usable payload), counted by a short description. They are skipped so
+    /// syncing keeps working; writes are blocked while any exist.
+    pub skipped: BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -286,20 +290,60 @@ impl State {
         Ok(())
     }
 
-    /// Validates then applies a page of entries starting at `start_index`.
-    /// All-or-nothing: on error nothing is applied.
+    /// Applies a page of entries starting at `start_index`.
+    ///
+    /// Never stops on one odd item: anything that can't be read is skipped
+    /// and recorded in [`State::skipped`] (or, for single fields with an
+    /// unexpected type, in [`State::unfamiliar_fields`]), so reading keeps
+    /// working. Callers must block writes while either is non-empty.
     pub fn apply_entries(&mut self, start_index: u64, entries: &[Vec<Item>]) -> Result<(), StateError> {
-        for entry in entries {
-            Self::validate_entry(entry)?;
-        }
         for (offset, entry) in entries.iter().enumerate() {
             let index = start_index + offset as u64;
             for item in entry {
-                self.apply_validated(index, item);
+                match validate_item(item) {
+                    Ok(()) => self.apply_validated(index, item),
+                    Err(StateError::Malformed { reason, .. }) if reason.starts_with("field ") => {
+                        let cleaned = self.drop_mistyped_fields(item);
+                        self.apply_validated(index, &cleaned);
+                    }
+                    Err(e) => {
+                        log::warn!("skipping unreadable Things Cloud item: {e}");
+                        let label = match &e {
+                            StateError::UnknownKind { kind, .. } => format!("{kind} (unknown item type)"),
+                            StateError::UnknownAction { kind, action, .. } => format!("{kind} (unknown change type {action})"),
+                            StateError::Malformed { kind, reason, .. } => format!("{kind} ({reason})"),
+                        };
+                        *self.skipped.entry(label).or_default() += 1;
+                    }
+                }
             }
             self.applied_index = self.applied_index.max(index + 1);
         }
         Ok(())
+    }
+
+    /// A copy of a validated-kind item without the fields whose type we don't
+    /// expect; their names are recorded.
+    fn drop_mistyped_fields(&mut self, item: &Item) -> Item {
+        let family = Family::of(&item.kind).expect("validated");
+        let key_type = key_type_for(family);
+        let mut kept = Map::new();
+        if let Value::Object(p) = &item.payload {
+            for (k, v) in p {
+                if type_ok(key_type(k), v) {
+                    kept.insert(k.clone(), v.clone());
+                } else {
+                    log::warn!("ignoring field {k} of a {} item: unexpected type", item.kind);
+                    self.unfamiliar_fields.entry(item.kind.clone()).or_default().insert(k.clone());
+                }
+            }
+        }
+        Item { payload: Value::Object(kept), ..item.clone() }
+    }
+
+    /// True when everything read so far was understood completely.
+    pub fn fully_understood(&self) -> bool {
+        self.unfamiliar_fields.is_empty() && self.skipped.is_empty()
     }
 
     fn apply_validated(&mut self, index: u64, item: &Item) {
@@ -600,18 +644,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_pages_atomically() {
+    fn unreadable_items_are_skipped_and_reported_without_stopping() {
         let mut s = State::new();
-        let good = vec![item("T", "Task6", 0, json!({"tt":"ok"}))];
+        let good = vec![item("T", "Task6", 0, json!({"tt":"ok","ix":3}))];
         let unknown = vec![item("X", "Widget1", 0, json!({}))];
-        assert!(matches!(s.apply_entries(0, &[good.clone(), unknown]), Err(StateError::UnknownKind { .. })));
-        assert!(s.tasks.is_empty(), "nothing applied when a later entry is invalid");
-        let wrong_type = vec![item("T", "Task6", 1, json!({"tt": 5}))];
-        assert!(matches!(s.apply_entries(0, &[wrong_type]), Err(StateError::Malformed { .. })));
+        let wrong_type = vec![item("T", "Task6", 1, json!({"tt": 5, "ss": 3}))];
         let bad_action = vec![item("T", "Task6", 7, json!({}))];
-        assert!(matches!(s.apply_entries(0, &[bad_action]), Err(StateError::UnknownAction { .. })));
+        let no_dloid = vec![item("Z", "Tombstone2", 0, json!({}))];
+        s.apply_entries(0, &[good, unknown, wrong_type, bad_action, no_dloid]).unwrap();
+        assert_eq!(s.applied_index, 5, "the cursor moves past every entry");
+        let t = &s.tasks["T"];
+        assert_eq!(t.title, "ok", "the mistyped title is ignored, not misread");
+        assert_eq!(t.status, Status::Completed, "other fields of that change still apply");
+        assert_eq!(s.unfamiliar_fields["Task6"].iter().collect::<Vec<_>>(), vec!["tt"]);
+        let skipped: Vec<_> = s.skipped.keys().cloned().collect();
+        assert_eq!(skipped, vec!["Task6 (unknown change type 7)", "Tombstone2 (tombstone without dloid)", "Widget1 (unknown item type)"]);
+        assert!(!s.fully_understood());
         // Settings of any version are ignored.
-        s.apply_entries(0, &[vec![item("S", "Settings5", 9, json!(1))]]).unwrap();
+        s.apply_entries(5, &[vec![item("S", "Settings5", 9, json!(1))]]).unwrap();
+        assert_eq!(s.skipped.len(), 3);
+        // Strict validation is still available for our own writes.
+        assert!(State::validate_entry(&[item("U", "Task6", 0, json!({"ix":"weird"}))]).is_err());
     }
 
     #[test]
@@ -636,8 +689,10 @@ mod tests {
         let fields: Vec<_> = s.unfamiliar_fields["Task7"].iter().cloned().collect();
         assert_eq!(fields, vec!["ix", "zz"]);
         assert!(!t.revs.fields.contains_key("zz"));
-        // Old kinds stay strict.
-        assert!(s.apply_entries(1, &[vec![item("U", "Task6", 0, json!({"ix":"weird"}))]]).is_err());
+        // Old kinds: the mistyped field is dropped and reported too.
+        s.apply_entries(1, &[vec![item("U", "Task6", 0, json!({"tt":"U","ix":"weird"}))]]).unwrap();
+        assert_eq!(s.tasks["U"].title, "U");
+        assert!(s.unfamiliar_fields["Task6"].contains("ix"));
     }
 
     #[test]

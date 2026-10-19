@@ -1,34 +1,46 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { moveTo, schedule, toggleComplete, trash } from "../actions";
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { orderChanges, placeAt } from "../lib/order";
+import { deletePermanently, moveTo, schedule, toggleComplete, trash } from "../actions";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
-import { useStore } from "../store";
+import { endDrag, startDrag } from "../dnd";
+import { useMulti, useStore } from "../store";
 import type { ChecklistItem, Tag, Task } from "../types";
 import {
+  AreaIcon,
   ArrowRightIcon,
   BellIcon,
   BoxIcon,
   CalendarIcon,
   ChecklistIcon,
+  ChevronIcon,
   CloseIcon,
   FlagIcon,
   MoonIcon,
+  MoreIcon,
   NotesIcon,
   ProgressPie,
   RepeatIcon,
   StarIcon,
   TagIcon,
   TrashIcon,
+  UndoIcon,
 } from "./Icons";
+import { bulkMenu, checklistMenu, taskMenu } from "./menus";
 import { DeadlinePicker, MovePicker, TagPicker, WhenPicker } from "./Pickers";
 
 const EMPTY_TAGS: Tag[] = [];
+
+/** Someday to-dos (no start date) get a dashed box, like Things. */
+export function isSomeday(t: Pick<Task, "start" | "startDate" | "status">): boolean {
+  return t.status === "open" && t.start === "someday" && !t.startDate;
+}
 
 export function Checkbox({ task, disabled }: { task: Task; disabled: boolean }) {
   const done = task.status !== "open";
   return (
     <button
-      className={`checkbox${done ? " done" : ""}${task.status === "canceled" ? " canceled" : ""}${task.deadline && task.deadline <= todayYmd() && !done ? " due" : ""}`}
+      className={`checkbox${done ? " done" : ""}${task.status === "canceled" ? " canceled" : ""}${task.deadline && task.deadline <= todayYmd() && !done ? " due" : ""}${isSomeday(task) ? " someday" : ""}`}
       role="checkbox"
       aria-checked={done}
       aria-label={done ? `Mark “${task.title}” as open` : `Complete “${task.title}”`}
@@ -69,8 +81,67 @@ export interface RowContext {
   listId: string;
 }
 
+/** Quick actions shown to the left of the selected row. */
+function RowActions({ task }: { task: Task }) {
+  const openPicker = useStore((s) => s.openPicker);
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (task.trashed)
+    return (
+      <div className="row-actions" onClick={stop} onDoubleClick={stop}>
+        <button className="ra-btn" title="Put Back" aria-label="Put Back" onClick={() => void trash(task, false)}>
+          <UndoIcon size={13} />
+        </button>
+        <button className="ra-btn danger" title="Delete Permanently (Delete)" aria-label="Delete Permanently" onClick={() => deletePermanently([task])}>
+          <TrashIcon size={13} />
+        </button>
+      </div>
+    );
+  return (
+    <div className="row-actions" onClick={stop} onDoubleClick={stop}>
+      {task.status === "open" && (
+        <button className="ra-btn" title="When (Ctrl+S)" aria-label="When" onClick={(e) => openPicker({ kind: "when", taskId: task.id, anchor: e.currentTarget })}>
+          <CalendarIcon size={13} />
+        </button>
+      )}
+      <button className="ra-btn" title="Move (Ctrl+Shift+M)" aria-label="Move" onClick={(e) => openPicker({ kind: "move", taskId: task.id, anchor: e.currentTarget })}>
+        <ArrowRightIcon size={13} />
+      </button>
+      <button className="ra-btn danger" title="Move to Trash (Delete)" aria-label="Move to Trash" onClick={() => void trash(task)}>
+        <TrashIcon size={13} />
+      </button>
+    </div>
+  );
+}
+
+/** Row ids in the order they appear on screen. */
+function visibleRowIds(): string[] {
+  return [...document.querySelectorAll<HTMLElement>(".groups .task-row[data-task-id]")].map((el) => el.dataset.taskId!);
+}
+
+/** Click, Ctrl-click and Shift-click selection, like Things and Explorer. */
+function clickRow(e: React.MouseEvent, task: Task) {
+  const s = useStore.getState();
+  if (e.shiftKey) {
+    const ids = visibleRowIds();
+    const from = ids.indexOf(s.anchorId ?? s.selectedId ?? task.id);
+    const to = ids.indexOf(task.id);
+    if (from !== -1 && to !== -1) {
+      const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+      const keep = e.ctrlKey || e.metaKey ? s.selectedIds.filter((id) => !range.includes(id)) : [];
+      s.setSelected([...keep, ...range], task.id);
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+  }
+  if (e.ctrlKey || e.metaKey || s.selectMode) return s.toggleSelected(task.id);
+  // Clicking the one selected to-do again opens it, like tapping in Things.
+  if (task.type === "task" && !task.trashed && s.selectedIds.length === 1 && s.selectedId === task.id && e.detail === 1) return s.edit(task.id);
+  s.selectTask(task.id);
+}
+
 export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: RowContext }) {
-  const selected = useStore((s) => s.selectedId === task.id);
+  const selected = useStore((s) => s.selectedIds.includes(task.id));
+  const multi = useMulti();
   const editing = useStore((s) => s.editingId === task.id);
   const view = useStore((s) => s.view);
   const writable = useStore((s) => !!s.app?.canWrite);
@@ -104,15 +175,36 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
       draggable={writable}
       data-task-id={task.id}
       onDragStart={(e) => {
-        e.dataTransfer.setData("application/x-tings3-task", task.id);
-        e.dataTransfer.effectAllowed = "move";
+        // Dragging a selected row carries the whole selection.
+        const s = useStore.getState();
+        const ids = selected && s.selectedIds.length > 1 ? s.selectedIds : [task.id];
+        startDrag("task", ids, e);
       }}
-      onClick={() => selectTask(task.id)}
-      onDoubleClick={() => (isProject ? select({ kind: "project", id: task.id }) : edit(task.id))}
+      onDragEnd={endDrag}
+      onMouseDown={(e) => e.shiftKey && e.preventDefault() /* no text selection on Shift-click */}
+      onClick={(e) => clickRow(e, task)}
+      onDoubleClick={(e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey || useStore.getState().selectMode) return;
+        if (isProject) select({ kind: "project", id: task.id });
+        else edit(task.id);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const s = useStore.getState();
+        if (selected && s.selectedIds.length > 1) {
+          const byId = new Map((s.view?.tasks ?? []).map((t) => [t.id, t]));
+          const tasks = s.selectedIds.map((id) => byId.get(id)).filter((t): t is Task => !!t);
+          s.openMenu(e, bulkMenu(tasks, rowRef.current));
+          return;
+        }
+        selectTask(task.id);
+        s.openMenu(e, taskMenu(task));
+      }}
     >
+      {selected && writable && !multi && <RowActions task={task} />}
       {isProject ? (
         <button className="project-pie" aria-label={`Open project ${task.title}`} onClick={() => select({ kind: "project", id: task.id })}>
-          <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} color="var(--c-project)" />
+          <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} color="var(--c-project)" dashed={isSomeday(task)} />
         </button>
       ) : (
         <Checkbox task={task} disabled={!writable} />
@@ -145,9 +237,45 @@ export const TaskRow = memo(function TaskRow({ task, ctx }: { task: Task; ctx: R
         </div>
         {ctx.showProject && (parent || area) && <div className="task-sub">{parent ? parent.title : area?.title}</div>}
       </div>
+      {multi && (
+        <span className={`sel-circle${selected ? " on" : ""}`} role="presentation" aria-hidden="true">
+          {selected && (
+            <svg viewBox="0 0 12 12" width="9" height="9">
+              <path d="m2.5 6.3 2.3 2.2 4.7-5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </span>
+      )}
     </div>
   );
 });
+
+/** "○ Project ›" in the open to-do, when viewing it outside its project or area (Today, Upcoming…). */
+function ContainerLink({ task }: { task: Task }) {
+  const selection = useStore((s) => s.selection);
+  const view = useStore((s) => s.view);
+  const project = task.projectId ? view?.tasks.find((t) => t.id === task.projectId) : undefined;
+  const area = task.areaId ? view?.areas.find((a) => a.id === task.areaId) : undefined;
+  const progress = project && view ? projectProgress(project.id, view) : null;
+  const heading = task.headingId ? view?.tasks.find((t) => t.id === task.headingId) : undefined;
+  if (project && selection.kind === "project" && selection.id === project.id) return null;
+  if (!project && area && selection.kind === "area" && selection.id === area.id) return null;
+  if (!project && !area) return null;
+  const go = () => {
+    const s = useStore.getState();
+    s.edit(null);
+    s.select(project ? { kind: "project", id: project.id } : { kind: "area", id: area!.id });
+    s.selectTask(task.id);
+  };
+  return (
+    <button className="container-link" onClick={go} title={project ? "Open project" : "Open area"}>
+      {project ? <ProgressPie done={progress?.done ?? 0} total={progress?.total ?? 0} size={14} color="var(--c-project)" dashed={isSomeday(project)} /> : <AreaIcon size={14} />}
+      <span>{project ? project.title || "Untitled Project" : area!.title}</span>
+      {heading && <span className="container-heading">· {heading.title}</span>}
+      <ChevronIcon size={10} />
+    </button>
+  );
+}
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -322,7 +450,13 @@ export function TaskEditor({ task }: { task: Task }) {
           <button className="icon-btn" title="Move to Trash (Delete)" onClick={() => void trash(task)} disabled={!writable}>
             <TrashIcon />
           </button>
+          <button className="icon-btn" title="More" aria-label="More actions" onClick={(e) => useStore.getState().openMenu(e.currentTarget, taskMenu(task))}>
+            <MoreIcon />
+          </button>
         </div>
+      </div>
+      <div className="editor-where">
+        <ContainerLink task={task} />
       </div>
       {picker === "when" && (
         <WhenPicker anchor={anchor} task={task} onPick={(w, r) => void schedule(task, w, r)} onClose={() => setPicker(null)} />
@@ -342,32 +476,114 @@ function ChecklistEditor({ taskId, items, writable }: { taskId: string; items: C
   const apply = useStore((s) => s.apply);
   const destructive = useStore((s) => !!s.app?.policy.destructive);
   const [draft, setDraft] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const newRef = useRef<HTMLInputElement>(null);
+  const sorted = useMemo(() => [...items].sort((a, b) => a.index - b.index), [items]);
   const add = () => {
     if (!draft.trim()) return;
     void apply({ type: "addChecklistItem", taskId, title: draft.trim() });
     setDraft("");
   };
+  // Pasting several lines adds one item per line.
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const lines = e.clipboardData.getData("text").split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•]\s*)?(?:\[[ xX]\]\s*)?/, "").trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    void (async () => {
+      for (const title of lines) if (!(await apply({ type: "addChecklistItem", taskId, title }))) break;
+    })();
+  };
+  const dropItem = () => {
+    if (dragId === null || dropAt === null) return;
+    const order = placeAt(sorted.map((c) => c.id), [dragId], dropAt);
+    const changes = orderChanges(order.map((id) => ({ id, value: sorted.find((c) => c.id === id)!.index })), new Set([dragId]));
+    if (changes.length) void apply({ type: "reorder", key: "index", items: changes });
+    setDragId(null);
+    setDropAt(null);
+  };
   return (
-    <div className="checklist" role="list">
-      {items.map((c) => (
-        <ChecklistRow key={c.id} item={c} writable={writable} canDelete={destructive} />
+    <div className="checklist" role="list" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDropAt(null)}>
+      {sorted.map((c, i) => (
+        <Fragment key={c.id}>
+          {dropAt === i && <div className="drop-line slim" aria-hidden="true" />}
+          <ChecklistRow
+            item={c}
+            writable={writable}
+            canDelete={destructive}
+            onEnter={() => newRef.current?.focus()}
+            drag={{
+              start: () => setDragId(c.id),
+              over: (e) => {
+                if (dragId === null) return;
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                setDropAt(e.clientY > r.top + r.height / 2 ? i + 1 : i);
+              },
+              drop: dropItem,
+              end: () => {
+                setDragId(null);
+                setDropAt(null);
+              },
+            }}
+          />
+        </Fragment>
       ))}
+      {dropAt === sorted.length && <div className="drop-line slim" aria-hidden="true" />}
       {writable && (
         <div className="checklist-row new">
           <span className="mini-check" />
-          <input value={draft} placeholder="Add checklist item" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} onBlur={add} />
+          <input
+            ref={newRef}
+            value={draft}
+            placeholder="Add checklist item"
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={onPaste}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+            onBlur={add}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writable: boolean; canDelete: boolean }) {
+interface RowDrag {
+  start: () => void;
+  over: (e: React.DragEvent<HTMLDivElement>) => void;
+  drop: () => void;
+  end: () => void;
+}
+
+function ChecklistRow({ item, writable, canDelete, onEnter, drag }: { item: ChecklistItem; writable: boolean; canDelete: boolean; onEnter?: () => void; drag?: RowDrag }) {
   const apply = useStore((s) => s.apply);
   const [title, setTitle] = useState(item.title);
   useEffect(() => setTitle(item.title), [item.title]);
   return (
-    <div className={`checklist-row${item.completed ? " done" : ""}`} role="listitem">
+    <div
+      className={`checklist-row${item.completed ? " done" : ""}`}
+      role="listitem"
+      draggable={writable && !!drag}
+      onDragStart={(e) => {
+        if ((e.target as HTMLElement).tagName === "INPUT") return e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.setData("application/x-tings3-checklist", item.id);
+        e.dataTransfer.effectAllowed = "move";
+        drag?.start();
+      }}
+      onDragOver={(e) => drag?.over(e)}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        drag?.drop();
+      }}
+      onDragEnd={() => drag?.end()}
+      onContextMenu={(e) => {
+        if ((e.target as HTMLElement).tagName === "INPUT" && window.getSelection()?.toString()) return; // keep copy/paste on selected text
+        e.preventDefault();
+        useStore.getState().openMenu(e, checklistMenu(item));
+      }}
+    >
       <button
         className={`mini-check${item.completed ? " done" : ""}`}
         role="checkbox"
@@ -381,7 +597,12 @@ function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writ
         readOnly={!writable}
         onChange={(e) => setTitle(e.target.value)}
         onBlur={() => title.trim() && title !== item.title && void apply({ type: "updateChecklistItem", id: item.id, baseRev: item.rev, title })}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+          onEnter?.(); // Enter moves on to a new item, like Things
+        }}
       />
       {canDelete && (
         <button className="icon-btn tiny" aria-label="Delete checklist item" title="Delete permanently" onClick={() => void apply({ type: "deleteChecklistItem", id: item.id })}>

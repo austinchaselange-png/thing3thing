@@ -117,9 +117,14 @@ export type Mutation =
   | { type: "createTag"; title: string; parentId?: string | null }
   | { type: "renameTag"; id: string; baseRev: number | null; title: string }
   | { type: "deleteTag"; id: string; confirm: string }
-  | { type: "stopRepeating"; id: string; confirm: string };
+  | { type: "stopRepeating"; id: string; confirm: string }
+  | { type: "setTagShortcut"; id: string; shortcut: string | null }
+  /** Sets the order of to-dos, projects, headings (index or Today's todayIndex), areas or checklist items (index). */
+  | { type: "reorder"; key: "index" | "todayIndex"; items: { id: string; value: number }[] }
+  /** Permanently deletes to-dos, projects and headings that are in the Trash (with their contents). */
+  | { type: "deleteTasks"; ids: string[]; confirm: string };
 
-export const DESTRUCTIVE: Mutation["type"][] = ["deleteChecklistItem", "deleteArea", "deleteTag", "stopRepeating"];
+export const DESTRUCTIVE: Mutation["type"][] = ["deleteChecklistItem", "deleteArea", "deleteTag", "stopRepeating", "deleteTasks"];
 
 export interface WriteReport {
   created: string[];
@@ -199,7 +204,13 @@ export interface AppState {
   platform: { os: string; micaAvailable: boolean; version: string };
   /** Writes allowed now: policy permits them and no unvalidated data format is present. */
   canWrite: boolean;
-  format: { newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[] };
+  format: {
+    newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[];
+    /** Why writes are turned off (newer schema, unreadable items, unexpected fields). Names only. */
+    problems: string[];
+    serverSchema: number | null;
+    writesSupported: boolean;
+  };
 }
 
 export type ListId = "inbox" | "today" | "upcoming" | "anytime" | "someday" | "logbook" | "trash";
@@ -209,3 +220,25 @@ export type Selection =
   | { kind: "project"; id: string }
   | { kind: "area"; id: string }
   | { kind: "tag"; id: string };
+
+/** Google Drive backup (src-tauri/src/drive.rs). */
+export interface DriveStatus {
+  configured: boolean;
+  builtInClient: boolean;
+  connected: boolean;
+  email: string | null;
+  name: string | null;
+  auto: boolean;
+  busy: boolean;
+  lastBackupAt: number | null;
+  lastError: string | null;
+  folderLink: string | null;
+}
+
+export interface DriveBackup {
+  id: string;
+  name: string;
+  modifiedTime: string | null;
+  size: number | null;
+  latest: boolean;
+}

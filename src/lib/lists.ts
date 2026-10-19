@@ -216,7 +216,7 @@ export function sidebarTree(s: Snapshot, ix: Index): { looseProjects: Task[]; ar
   const projects = s.tasks.filter((t) => t.type === "project" && isLive(t, ix)).sort(byIndex);
   return {
     looseProjects: projects.filter((p) => !p.areaId || !ix.areas.has(p.areaId)),
-    areas: s.areas.map((area) => ({ area, projects: projects.filter((p) => p.areaId === area.id) })),
+    areas: [...s.areas].sort((a, b) => a.index - b.index).map((area) => ({ area, projects: projects.filter((p) => p.areaId === area.id) })),
   };
 }
 

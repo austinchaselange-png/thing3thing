@@ -20,6 +20,18 @@
     "allow-reapply-issue",
     "allow-update-settings",
     "allow-demo-simulate-remote-edit",
-    "allow-show-main-window"
+    "allow-show-main-window",
+    "allow-take-links",
+    "allow-export-backup",
+    "allow-open-url",
+    "allow-drive-status",
+    "allow-drive-set-client",
+    "allow-drive-connect",
+    "allow-drive-disconnect",
+    "allow-drive-set-auto",
+    "allow-drive-backup-now",
+    "allow-drive-list",
+    "allow-drive-download",
+    "allow-drive-restore"
   ]
 }

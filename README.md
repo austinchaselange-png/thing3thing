@@ -1,10 +1,10 @@
-# Tings 3
+# Things 3
 
-A Windows task manager in the spirit of Things 3, built with Tauri 2, React and
-TypeScript. Tings 3 reads — and, after you opt in, writes — your **Things Cloud**
+An unofficial, personal Windows client for Things 3, built with Tauri 2, React and
+TypeScript. Things 3 reads — and, after you opt in, writes — your **Things Cloud**
 data, so it can stay in sync with Things on your iPhone without a Mac.
 
-> **Unofficial.** Things Cloud has no public API. Tings 3 speaks a
+> **Unofficial.** Things Cloud has no public API. Things 3 speaks a
 > reverse-engineered protocol (ported from
 > [things-cloud-mcp](https://github.com/wbopan/things-cloud-mcp) /
 > things-cloud-sdk). It starts read-only, and end-to-end sync with a real
@@ -22,6 +22,12 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 * **Things lists:** Inbox, Today (with This Evening), Upcoming (by day, then
   month), Anytime, Someday, Logbook, Trash; areas, projects with headings and
   progress pies, tags with a tag filter bar, Quick Find.
+* **Right-click everywhere:** to-dos, projects, headings, areas, tags, lists,
+  checklist items and empty space all have context menus (When submenu,
+  deadline, tags, move, duplicate, copy, rename, trash with Undo, …), fully
+  keyboard-navigable (Shift+F10). A blue **+** button in the corner adds
+  to-dos (right-click it for projects, areas and headings), and the selected
+  to-do shows When / Move / Trash buttons beside it.
 * **Editing:** inline to-do editor with notes, checklists, tags, deadlines,
   reminders and When (Today / This Evening / calendar / Someday, plus typed
   dates like "next fri"). Drag to-dos onto sidebar lists, projects or areas.
@@ -45,11 +51,11 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
 
 ## Install
 
-Download the latest `Tings 3_*_x64-setup.exe` (or `.msi`) from the
+Download the latest `Things 3_*_x64-setup.exe` (or `.msi`) from the
 **Windows build** workflow's artifacts on GitHub Actions. The installers are
 unsigned, so SmartScreen will ask you to confirm.
 
-On first launch Tings 3 starts with an empty list stored only on your PC.
+On first launch Things 3 starts with an empty list stored only on your PC.
 Connect your account in **Settings → Account**.
 
 ## Keyboard shortcuts
@@ -62,8 +68,10 @@ Connect your account in **Settings → Account**.
 | Today / This Evening | Ctrl+T / Ctrl+E | Anytime / Someday | Ctrl+R / Ctrl+O |
 | When… | Ctrl+S | Move… | Ctrl+Shift+M |
 | Deadline… | Ctrl+Shift+D | Tags… | Ctrl+Shift+T |
+| Duplicate | Ctrl+D | Context menu | Shift+F10 |
 | Go to list 1–7 | Ctrl+1 … Ctrl+7 | Sync now | F5 |
 | Settings | Ctrl+, | Quick Entry (global) | Ctrl+Alt+Space |
+| All shortcuts | Ctrl+/ | | |
 
 ## Develop
 

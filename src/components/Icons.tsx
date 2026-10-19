@@ -67,7 +67,8 @@ export const AreaIcon = (p: P) => (
   </Svg>
 );
 
-export function ProgressPie({ done, total, size = 16, color = "currentColor" }: { done: number; total: number; size?: number; color?: string }) {
+/** Project progress ring. `dashed` marks a Someday project, like Things. */
+export function ProgressPie({ done, total, size = 16, color = "currentColor", dashed }: { done: number; total: number; size?: number; color?: string; dashed?: boolean }) {
   const frac = total ? done / total : 0;
   const r = 4.2;
   const angle = frac * 2 * Math.PI;
@@ -76,7 +77,7 @@ export function ProgressPie({ done, total, size = 16, color = "currentColor" }: 
   const large = frac > 0.5 ? 1 : 0;
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.3" fill="none" stroke={color} strokeWidth="1.4" />
+      <circle cx="8" cy="8" r="6.3" fill="none" stroke={color} strokeWidth="1.4" strokeDasharray={dashed ? "2.2 1.9" : undefined} />
       {frac >= 1 ? (
         <circle cx="8" cy="8" r={r} fill={color} />
       ) : frac > 0 ? (
@@ -120,6 +121,65 @@ export const NotesIcon = (p: P) => (
 export const ChecklistIcon = (p: P) => (
   <Svg {...p}>
     <path d="m2.5 4.2 1 1 1.8-2M2.5 9.7l1 1 1.8-2M7.5 4.5H13.5M7.5 10H13.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+export const DriveIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4.6 12.6h7.3a2.7 2.7 0 0 0 .4-5.4 3.8 3.8 0 0 0-7.3-.9A3.2 3.2 0 0 0 4.6 12.6Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="m6.4 9.6 1.4 1.3 2.6-2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+export const LinkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const KeyboardIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="1.5" y="4" width="13" height="8.5" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M4 6.6h1M7 6.6h1M10 6.6h2M4 9.6h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const SidebarIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 3v10" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const MoreIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="3.5" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="12.5" cy="8" r="1.25" fill="currentColor" />
+  </Svg>
+);
+
+export const ShareIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M8 10V2.3M5.3 4.8 8 2.2l2.7 2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5.5 7H4.2a.9.9 0 0 0-.9.9v5.3c0 .5.4.9.9.9h7.6c.5 0 .9-.4.9-.9V7.9a.9.9 0 0 0-.9-.9h-1.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const SelectIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M2 4h7M2 8h7M2 12h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <circle cx="12.6" cy="5.2" r="1.7" stroke="currentColor" strokeWidth="1.2" />
+    <circle cx="12.6" cy="10.8" r="1.7" stroke="currentColor" strokeWidth="1.2" />
+  </Svg>
+);
+
+export const PasteIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="8" height="11" rx="1.4" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M5.5 3V2.2h3V3" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <rect x="7.5" y="7" width="6" height="7.5" rx="1.2" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" />
   </Svg>
 );
 
@@ -202,6 +262,54 @@ export const ChevronIcon = (p: P) => (
 export const HeadingIcon = (p: P) => (
   <Svg {...p}>
     <path d="M2.5 4.5h11M2.5 8h7M2.5 11.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const CopyIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="5" width="8.5" height="8.5" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M10.5 5V3.8a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.4a1.3 1.3 0 0 0 1.3 1.3H5" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const PencilIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M10.6 2.9a1.6 1.6 0 0 1 2.3 2.3L6 12.1l-3 .8.8-3 6.8-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="m9.4 4.1 2.3 2.3" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const CheckIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="m3 8.4 3.2 3.1L13 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+export const UndoIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M5.5 3.5 2.5 6.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M2.8 6.5h6.7a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const OpenIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 2.5h4.5V7M13.2 2.8 7.5 8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M11.5 9.5v2.7a1.3 1.3 0 0 1-1.3 1.3H3.8a1.3 1.3 0 0 1-1.3-1.3V5.8a1.3 1.3 0 0 1 1.3-1.3h2.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const CancelIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" />
+    <path d="m4.2 11.8 7.6-7.6" stroke="currentColor" strokeWidth="1.3" />
+  </Svg>
+);
+
+export const ClipboardIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="10" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 3V2.4c0-.5.4-.9.9-.9h2.2c.5 0 .9.4.9.9V3M5.5 7.5h5M5.5 10h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
   </Svg>
 );
 
