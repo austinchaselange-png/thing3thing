@@ -279,6 +279,23 @@ function GeneralTab() {
         disabled={!app.platform.micaAvailable}
         onChange={(v) => update({ mica: v })}
       />
+      <div className="select-row">
+        <span>
+          Backup
+          <small className="hint-block">Saves all your to-dos, projects, areas, tags and checklists as a JSON file in Documents\Things 3 Backups.</small>
+        </span>
+        <button
+          className="btn"
+          onClick={() =>
+            void run(async () => {
+              const where = await getBackend().exportBackup();
+              useStore.getState().toast(`Backup saved to ${where}`, "success");
+            })
+          }
+        >
+          Export Backup…
+        </button>
+      </div>
     </div>
   );
 }

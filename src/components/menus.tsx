@@ -23,11 +23,14 @@ import {
   whenOf,
 } from "../actions";
 import { addDays, relativeLabel, todayYmd, weekdayName } from "../lib/dates";
+import { linkFor } from "../links";
 import { useStore, type MenuItem, type PickerState } from "../store";
+import { snooze, SNOOZE_OPTIONS } from "./ReminderBar";
 import type { Area, ChecklistItem, ListId, Selection, Tag, Task, When } from "../types";
 import {
   AreaIcon,
   ArrowRightIcon,
+  BellIcon,
   BoxIcon,
   CalendarIcon,
   CancelIcon,
@@ -37,7 +40,9 @@ import {
   FlagIcon,
   HeadingIcon,
   InboxIcon,
+  KeyboardIcon,
   LayersIcon,
+  LinkIcon,
   MoonIcon,
   OpenIcon,
   PasteIcon,
@@ -134,6 +139,9 @@ export function taskMenu(t: Task): MenuItem[] {
   if (open) items.push(w({ label: isProject ? "Cancel Project" : "Cancel", icon: <CancelIcon />, onSelect: () => void setStatus(t, "canceled") }));
   items.push(SEP as W);
   if (open) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems([t])) }));
+  if (open && t.reminder) {
+    items.push(w({ label: "Snooze Reminder", icon: <BellIcon />, submenu: guard(SNOOZE_OPTIONS.map(([label, by]) => w({ label, onSelect: () => void snooze(t, by) }))) }));
+  }
   items.push(
     w({ label: t.deadline ? "Change Deadline…" : "Add Deadline…", icon: <FlagIcon />, shortcut: "Ctrl+Shift+D", onSelect: () => s.openPicker({ kind: "deadline", taskId: t.id, anchor: anchorFor(t.id) }) }),
   );
@@ -147,6 +155,7 @@ export function taskMenu(t: Task): MenuItem[] {
   if (isProject) items.push(w({ label: "Rename…", icon: <PencilIcon />, onSelect: () => renameTask(t) }));
   if (!isProject) items.push(w({ label: "Duplicate", icon: <CopyIcon />, shortcut: "Ctrl+D", onSelect: () => void duplicate(t) }));
   items.push({ label: "Copy Title", icon: <ClipboardIcon />, onSelect: () => void copyText(t.title, "Title copied") });
+  items.push({ label: "Copy Link", icon: <LinkIcon />, hint: "A things:/// link that opens this in Things on any device", onSelect: () => void copyText(linkFor(t.id), "Link copied") });
   items.push({ label: "Share…", icon: <ShareIcon />, onSelect: () => void shareText(t.title, isProject ? projectAsText(t) : tasksAsText([t])) });
   if (s.selection.kind !== "project" || s.selection.id !== (t.projectId ?? t.id)) {
     items.push({ label: isProject ? "Show Project" : "Show in List", icon: <OpenIcon />, onSelect: () => reveal(t) });
@@ -154,6 +163,24 @@ export function taskMenu(t: Task): MenuItem[] {
   items.push(SEP as W);
   items.push(w({ label: "Move to Trash", icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => void trash(t) }));
   return guard(items);
+}
+
+/** Turns a checklist item into a to-do in the same place as its parent, then removes the item. */
+async function convertChecklistItem(c: ChecklistItem) {
+  const s = store();
+  const parent = s.view?.tasks.find((t) => t.id === c.taskId);
+  const r = await s.apply({
+    type: "createTask",
+    title: c.title,
+    when: parent ? whenOf(parent) : undefined,
+    areaId: parent?.headingId || parent?.projectId ? null : (parent?.areaId ?? null),
+    projectId: parent?.headingId ? null : (parent?.projectId ?? null),
+    headingId: parent?.headingId ?? null,
+    tagIds: parent?.tagIds,
+  });
+  if (!r?.created[0]) return;
+  if (s.app?.policy.destructive) await s.apply({ type: "deleteChecklistItem", id: c.id });
+  else s.toast("Made a to-do. The checklist item stays, because permanent deletions are turned off.", "info");
 }
 
 export function headingMenu(h: Task): MenuItem[] {
@@ -223,6 +250,25 @@ export function tagMenu(t: Tag): MenuItem[] {
   return guard([
     { label: "Show To-Dos with Tag", icon: <TagIcon />, onSelect: () => s.select({ kind: "tag", id: t.id }) },
     SEP,
+    w({
+      label: t.shortcut ? `Shortcut: Alt+${t.shortcut.toUpperCase()}…` : "Set Shortcut…",
+      icon: <KeyboardIcon />,
+      hint: "Press Alt and this key to add or remove the tag on selected to-dos",
+      onSelect: () =>
+        s.openDialog({
+          kind: "prompt",
+          title: `Shortcut for “${t.title}”`,
+          label: "One key (letter or number). Leave empty to remove.",
+          initial: t.shortcut ?? "",
+          confirmLabel: "Save",
+          onSubmit: (v) => {
+            const key = v.trim().slice(0, 1).toLowerCase() || null;
+            const taken = key ? s.view?.tags.find((x) => x.id !== t.id && x.shortcut?.toLowerCase() === key) : undefined;
+            if (taken) return s.toast(`Alt+${key!.toUpperCase()} is already used by “${taken.title}”.`, "error");
+            void s.apply({ type: "setTagShortcut", id: t.id, shortcut: key });
+          },
+        }),
+    }),
     w({ label: "Rename…", icon: <PencilIcon />, onSelect: () => promptRename("Rename Tag", t.title, (title) => void s.apply({ type: "renameTag", id: t.id, baseRev: t.rev, title })) }),
     w({
       label: "Delete Tag…",
@@ -245,6 +291,7 @@ export function tagMenu(t: Tag): MenuItem[] {
 export function checklistMenu(c: ChecklistItem): MenuItem[] {
   const s = store();
   return guard([
+    w({ label: "Convert to To-Do", icon: <OpenIcon />, hint: "Makes it a to-do next to this one", onSelect: () => void convertChecklistItem(c) }),
     w({
       label: c.completed ? "Mark as Open" : "Complete",
       icon: c.completed ? <UndoIcon /> : <CheckIcon />,

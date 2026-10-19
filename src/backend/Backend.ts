@@ -23,4 +23,12 @@ export interface Backend {
   simulateRemoteEdit(): Promise<string>;
   hideQuickEntry(): Promise<void>;
   showMainWindow(): Promise<void>;
+  /** things:/// links the app was opened with. */
+  takeLinks(): Promise<string[]>;
+  /** Later links (a second launch, the jump list). */
+  onLink(listener: (url: string) => void): () => void;
+  /** Reminders as they go off, for Snooze. */
+  onReminder(listener: (r: { taskId: string; title: string; at: string }) => void): () => void;
+  /** Saves a JSON backup; returns where it went. */
+  exportBackup(): Promise<string>;
 }

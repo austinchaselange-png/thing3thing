@@ -513,6 +513,8 @@ impl Core {
         };
         for r in due {
             self.notify(&r.title, &format!("Reminder · {}", r.at.format("%H:%M")));
+            // The window shows it with Snooze buttons.
+            let _ = self.app.emit_to("main", "reminder", json!({ "taskId": r.task_id, "title": r.title, "at": r.at.format("%H:%M").to_string() }));
         }
     }
 

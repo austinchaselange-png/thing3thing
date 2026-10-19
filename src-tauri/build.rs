@@ -15,6 +15,8 @@ const COMMANDS: &[&str] = &[
     "demo_simulate_remote_edit",
     "hide_quick_entry",
     "show_main_window",
+    "take_links",
+    "export_backup",
 ];
 
 fn main() {

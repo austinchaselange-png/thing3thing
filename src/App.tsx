@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, copyText, deletePermanently, pasteAsTodos, tasksAsText } from "./actions";
 import { getBackend } from "./backend";
 import { ContextMenu } from "./components/ContextMenu";
+import { KeyHints } from "./components/KeyHints";
+import { ReminderBar, type DueReminder } from "./components/ReminderBar";
+import { drag, endDrag, PLUS_MIME, startDrag } from "./dnd";
+import { handleLink } from "./links";
 import { ConfirmDialog, ConflictDialog, IssueBanner, IssueDialog, PromptDialog, QuickFind, ReadOnlyBanner, SettingsDialog, ShortcutsDialog, SyncErrorBanner, Toasts, WriteOptInDialog } from "./components/Dialogs";
 import { ArrowRightIcon, CalendarIcon, ChevronIcon, CloudIcon, MoreIcon, PlusIcon, SearchIcon, SidebarIcon, TrashIcon, UndoIcon } from "./components/Icons";
 import { bulkMenu, bulkMoreMenu, newItemsMenu, taskMenu } from "./components/menus";
@@ -43,9 +47,26 @@ export function App() {
   const sameDeadline = pickerTasks.every((t) => t.deadline === pickerTask?.deadline) ? (pickerTask?.deadline ?? null) : null;
   const pickerTags = commonTags(pickerTasks);
 
+  const [reminders, setReminders] = useState<DueReminder[]>([]);
+
   useEffect(() => {
     void useStore.getState().init();
   }, []);
+
+  // things:/// links (launch, second launch, jump list) and reminders going off.
+  useEffect(() => {
+    if (!app) return;
+    const backend = getBackend();
+    void backend.takeLinks().then((links) => links.forEach((l) => void handleLink(l)));
+    const offLink = backend.onLink((l) => void handleLink(l));
+    const offReminder = backend.onReminder((r) => setReminders((list) => [...list.filter((x) => x.taskId !== r.taskId), r]));
+    return () => {
+      offLink();
+      offReminder();
+    };
+    // Once the first state has loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!app]);
 
   useEffect(() => setScrolled(false), [selection]);
 
@@ -71,6 +92,17 @@ export function App() {
       if (ctrl && e.altKey && key === "s") return (e.preventDefault(), s.toggleSidebar());
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
+
+      // Tag shortcuts: Alt+key adds/removes the tag on the selection, or filters the list.
+      if (e.altKey && !ctrl && e.key.length === 1) {
+        const tag = s.view?.tags.find((t) => t.shortcut && t.shortcut.toLowerCase() === e.key.toLowerCase());
+        if (tag) {
+          e.preventDefault();
+          if (!targets.length) return s.setTagFilter(s.tagFilter === tag.id ? null : tag.id);
+          const all = targets.every((t) => t.tagIds.includes(tag.id));
+          return void bulkTags(targets, all ? [] : [tag.id], all ? [tag.id] : []);
+        }
+      }
 
       // Undo / Redo (text fields keep their own).
       if (ctrl && !e.altKey && key === "z") return (e.preventDefault(), void (e.shiftKey ? s.redo() : s.undo()));
@@ -228,6 +260,7 @@ export function App() {
           </button>
           <TrafficLights />
         </header>
+        <ReminderBar items={reminders} onDismiss={(id) => setReminders((list) => list.filter((r) => r.taskId !== id))} />
         <SyncErrorBanner />
         <IssueBanner />
         <ReadOnlyBanner />
@@ -273,6 +306,7 @@ export function App() {
       {dialog?.kind === "shortcuts" && <ShortcutsDialog />}
       <ContextMenu />
       <Toasts />
+      <KeyHints />
     </div>
   );
 }
@@ -331,8 +365,11 @@ function AddBubble({ disabled }: { disabled: boolean }) {
     <button
       className="add-bubble"
       aria-label="New To-Do"
-      title={disabled ? "Read-only" : blocked ? "Pick a list to add to-dos" : "New To-Do (Ctrl+N) — right-click for more"}
+      title={disabled ? "Read-only" : blocked ? "Pick a list to add to-dos" : "New To-Do (Ctrl+N). Drag it to where the to-do should go; right-click for more"}
       disabled={disabled || blocked}
+      draggable={!disabled}
+      onDragStart={(e) => startDrag("plus", [], e, PLUS_MIME)}
+      onDragEnd={() => drag.kind === "plus" && endDrag()}
       onClick={() => window.dispatchEvent(new Event("tings3:new-task"))}
       onContextMenu={(e) => {
         e.preventDefault();

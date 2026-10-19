@@ -180,6 +180,8 @@ export function ListView() {
   const [draft, setDraft] = useState<string | null>(null);
   /** The row a new to-do goes right after (Space). */
   const [draftAfter, setDraftAfter] = useState<string | null>(null);
+  /** Magic Plus dropped at the top of a group: the draft goes first there. */
+  const [draftTop, setDraftTop] = useState<Group | null>(null);
   /** Where a dragged to-do would land: before group.tasks[index]. */
   const [drop, setDrop] = useState<{ key: string; index: number } | null>(null);
   /** Heading drag: insert before this heading (or "end"). */
@@ -258,6 +260,13 @@ export function ListView() {
       if (before !== headingDrop) setHeadingDrop(before);
       return;
     }
+    if (drag.kind === "plus") {
+      if (!canAdd || g.key === "done" || (selection.kind === "area" && g.key === "projects")) return;
+      e.preventDefault();
+      const index = dropIndex(e, g);
+      if (drop?.key !== g.key || drop.index !== index) setDrop({ key: g.key, index });
+      return;
+    }
     if (drag.kind !== "task") return;
     const tasks = drag.ids.map((id) => real.get(id)).filter((t): t is NonNullable<typeof t> => !!t);
     if (!canDropInto(selection, g, tasks)) return;
@@ -273,6 +282,12 @@ export function ListView() {
       void dropHeadings(selection.id, ids, headingDrop === "end" ? null : headingDrop);
     } else if (drag.kind === "task" && drop?.key === g.key) {
       void dropTasks(selection, g, drop.index, ids);
+    } else if (drag.kind === "plus" && drop?.key === g.key) {
+      // Magic Plus: a new to-do right where it was dropped.
+      const after = drop.index > 0 ? g.tasks[drop.index - 1]?.id : undefined;
+      setDraft(g.key);
+      setDraftAfter(after ?? null);
+      setDraftTop(after ? null : g);
     }
     setDrop(null);
     setHeadingDrop(null);
@@ -411,7 +426,16 @@ export function ListView() {
                   )}
                 </div>
               )}
-              {draft === g.key && !(draftAfter && g.tasks.some((t) => t.id === draftAfter)) && <NewTaskDraft section={g.key} onDone={() => setDraft(null)} />}
+              {draft === g.key && !(draftAfter && g.tasks.some((t) => t.id === draftAfter)) && (
+                <NewTaskDraft
+                  section={g.key}
+                  place={draftTop?.key === g.key && g.tasks.length ? { group: g, index: 0 } : undefined}
+                  onDone={() => {
+                    setDraft(null);
+                    setDraftTop(null);
+                  }}
+                />
+              )}
               {g.tasks.map((t, i) => (
                 <Fragment key={t.id}>
                   {drop?.key === g.key && drop.index === i && <div className="drop-line" aria-hidden="true" />}

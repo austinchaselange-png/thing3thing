@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { orderChanges, placeAt } from "../lib/order";
 import { deletePermanently, moveTo, schedule, toggleComplete, trash } from "../actions";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
@@ -475,27 +476,86 @@ function ChecklistEditor({ taskId, items, writable }: { taskId: string; items: C
   const apply = useStore((s) => s.apply);
   const destructive = useStore((s) => !!s.app?.policy.destructive);
   const [draft, setDraft] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const newRef = useRef<HTMLInputElement>(null);
+  const sorted = useMemo(() => [...items].sort((a, b) => a.index - b.index), [items]);
   const add = () => {
     if (!draft.trim()) return;
     void apply({ type: "addChecklistItem", taskId, title: draft.trim() });
     setDraft("");
   };
+  // Pasting several lines adds one item per line.
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const lines = e.clipboardData.getData("text").split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•]\s*)?(?:\[[ xX]\]\s*)?/, "").trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    void (async () => {
+      for (const title of lines) if (!(await apply({ type: "addChecklistItem", taskId, title }))) break;
+    })();
+  };
+  const dropItem = () => {
+    if (dragId === null || dropAt === null) return;
+    const order = placeAt(sorted.map((c) => c.id), [dragId], dropAt);
+    const changes = orderChanges(order.map((id) => ({ id, value: sorted.find((c) => c.id === id)!.index })), new Set([dragId]));
+    if (changes.length) void apply({ type: "reorder", key: "index", items: changes });
+    setDragId(null);
+    setDropAt(null);
+  };
   return (
-    <div className="checklist" role="list">
-      {items.map((c) => (
-        <ChecklistRow key={c.id} item={c} writable={writable} canDelete={destructive} />
+    <div className="checklist" role="list" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDropAt(null)}>
+      {sorted.map((c, i) => (
+        <Fragment key={c.id}>
+          {dropAt === i && <div className="drop-line slim" aria-hidden="true" />}
+          <ChecklistRow
+            item={c}
+            writable={writable}
+            canDelete={destructive}
+            onEnter={() => newRef.current?.focus()}
+            drag={{
+              start: () => setDragId(c.id),
+              over: (e) => {
+                if (dragId === null) return;
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                setDropAt(e.clientY > r.top + r.height / 2 ? i + 1 : i);
+              },
+              drop: dropItem,
+              end: () => {
+                setDragId(null);
+                setDropAt(null);
+              },
+            }}
+          />
+        </Fragment>
       ))}
+      {dropAt === sorted.length && <div className="drop-line slim" aria-hidden="true" />}
       {writable && (
         <div className="checklist-row new">
           <span className="mini-check" />
-          <input value={draft} placeholder="Add checklist item" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} onBlur={add} />
+          <input
+            ref={newRef}
+            value={draft}
+            placeholder="Add checklist item"
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={onPaste}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+            onBlur={add}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writable: boolean; canDelete: boolean }) {
+interface RowDrag {
+  start: () => void;
+  over: (e: React.DragEvent<HTMLDivElement>) => void;
+  drop: () => void;
+  end: () => void;
+}
+
+function ChecklistRow({ item, writable, canDelete, onEnter, drag }: { item: ChecklistItem; writable: boolean; canDelete: boolean; onEnter?: () => void; drag?: RowDrag }) {
   const apply = useStore((s) => s.apply);
   const [title, setTitle] = useState(item.title);
   useEffect(() => setTitle(item.title), [item.title]);
@@ -503,6 +563,21 @@ function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writ
     <div
       className={`checklist-row${item.completed ? " done" : ""}`}
       role="listitem"
+      draggable={writable && !!drag}
+      onDragStart={(e) => {
+        if ((e.target as HTMLElement).tagName === "INPUT") return e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.setData("application/x-tings3-checklist", item.id);
+        e.dataTransfer.effectAllowed = "move";
+        drag?.start();
+      }}
+      onDragOver={(e) => drag?.over(e)}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        drag?.drop();
+      }}
+      onDragEnd={() => drag?.end()}
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).tagName === "INPUT" && window.getSelection()?.toString()) return; // keep copy/paste on selected text
         e.preventDefault();
@@ -522,7 +597,12 @@ function ChecklistRow({ item, writable, canDelete }: { item: ChecklistItem; writ
         readOnly={!writable}
         onChange={(e) => setTitle(e.target.value)}
         onBlur={() => title.trim() && title !== item.title && void apply({ type: "updateChecklistItem", id: item.id, baseRev: item.rev, title })}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+          onEnter?.(); // Enter moves on to a new item, like Things
+        }}
       />
       {canDelete && (
         <button className="icon-btn tiny" aria-label="Delete checklist item" title="Delete permanently" onClick={() => void apply({ type: "deleteChecklistItem", id: item.id })}>

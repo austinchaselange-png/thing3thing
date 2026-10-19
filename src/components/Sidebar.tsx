@@ -5,7 +5,7 @@ import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
 import type { ListId, Selection, Task, When } from "../types";
-import { AreaIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
+import { AreaIcon, ChevronIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
 import { areaMenu, listMenu, tagMenu, taskMenu } from "./menus";
 import { Popover } from "./Pickers";
 import { SidebarWidgets } from "./SidebarWidgets";
@@ -59,6 +59,7 @@ function NavItem({
   badge,
   strong,
   reorder,
+  collapse,
 }: {
   sel: Selection;
   icon: ReactNode;
@@ -67,6 +68,8 @@ function NavItem({
   badge?: number;
   strong?: boolean;
   reorder?: Reorderable;
+  /** Areas: a chevron that hides their projects. */
+  collapse?: { collapsed: boolean; toggle: () => void; hidden: number };
 }) {
   const active = useStore((s) => sameSel(s.selection, sel));
   const [over, setOver] = useState(false);
@@ -77,6 +80,12 @@ function NavItem({
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
+    if (drag.kind === "plus") {
+      endDrag();
+      useStore.getState().select(sel);
+      setTimeout(() => window.dispatchEvent(new Event("tings3:new-task")), 0);
+      return;
+    }
     if (reorder && reorderTarget()) {
       const ids = [...drag.ids];
       const where = line;
@@ -120,6 +129,14 @@ function NavItem({
         setLine(null);
       }}
       onDragOver={(e) => {
+        if (drag.kind === "plus") {
+          // Magic Plus onto a list, project or area: start a new to-do there.
+          if (sel.kind === "list" && (sel.id === "logbook" || sel.id === "trash")) return;
+          if (sel.kind === "tag") return;
+          e.preventDefault();
+          setOver(true);
+          return;
+        }
         if (reorderTarget()) {
           e.preventDefault();
           const r = e.currentTarget.getBoundingClientRect();
@@ -141,6 +158,21 @@ function NavItem({
     >
       <span className="nav-icon">{icon}</span>
       <span className="nav-label">{label}</span>
+      {collapse && (
+        <span
+          className={`nav-collapse${collapse.collapsed ? " collapsed" : ""}`}
+          role="button"
+          tabIndex={-1}
+          aria-label={collapse.collapsed ? `Show ${collapse.hidden} projects` : "Hide projects"}
+          title={collapse.collapsed ? `Show ${collapse.hidden} project${collapse.hidden === 1 ? "" : "s"}` : "Hide projects"}
+          onClick={(e) => {
+            e.stopPropagation();
+            collapse.toggle();
+          }}
+        >
+          <ChevronIcon size={9} />
+        </span>
+      )}
       {!!badge && <span className="nav-badge">{badge}</span>}
       {!!count && <span className="nav-count">{count}</span>}
     </button>
@@ -219,6 +251,23 @@ export function Sidebar() {
   const tree = useMemo(() => sidebarTree(view, ix), [view, ix]);
   const today = todayYmd();
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("tings3.collapsedAreas") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const toggleArea = (id: string) =>
+    setCollapsed((list) => {
+      const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+      try {
+        localStorage.setItem("tings3.collapsedAreas", JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
   const counts = useMemo(() => {
     const overdue = view.tasks.filter((t) => t.type === "task" && t.status === "open" && !t.trashed && t.deadline && t.deadline <= today && t.startDate && t.startDate <= today).length;
     return { inbox: countFor("inbox", view, ix, today), today: countFor("today", view, ix, today), overdue };
@@ -273,8 +322,9 @@ export function Sidebar() {
               label={area.title || "Untitled Area"}
               strong
               reorder={{ kind: "area", siblings: areaSiblings }}
+              collapse={projects.length ? { collapsed: collapsed.includes(area.id), toggle: () => toggleArea(area.id), hidden: projects.length } : undefined}
             />
-            {projects.map(project)}
+            {!collapsed.includes(area.id) && projects.map(project)}
           </div>
         ))}
         <SidebarWidgets snap={view} ix={ix} />

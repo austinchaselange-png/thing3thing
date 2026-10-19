@@ -162,6 +162,12 @@ pub enum Mutation {
         #[serde(default)]
         confirm: String,
     },
+    /// A single character (or none) that toggles the tag from the keyboard.
+    SetTagShortcut {
+        id: String,
+        #[serde(default)]
+        shortcut: Option<String>,
+    },
     StopRepeating {
         id: String,
         #[serde(default)]
@@ -658,6 +664,8 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
                     }
                 } else if state.areas.contains_key(&it.id) && *key == OrderKey::Index {
                     plan.items.push(ops::area_reorder(&it.id, it.value)?);
+                } else if state.checklist.contains_key(&it.id) && *key == OrderKey::Index {
+                    plan.items.push(ops::checklist_reorder(&it.id, it.value)?);
                 } else {
                     return Err(PlanError::NotFound(format!("item {}", it.id)));
                 }
@@ -725,6 +733,15 @@ pub fn plan(state: &State, m: &Mutation, ctx: &Ctx) -> Result<Plan, PlanError> {
                 format!("Delete {} items permanently", ids.len())
             };
         }
+        Mutation::SetTagShortcut { id, shortcut } => {
+            let tag = state.tags.get(id).ok_or_else(|| PlanError::NotFound(format!("tag {id}")))?;
+            let sh = shortcut.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            if sh.is_some_and(|s| s.chars().count() != 1) {
+                return invalid("a tag shortcut is a single key");
+            }
+            plan.items.push(ops::tag_shortcut(id, sh)?);
+            plan.summary = format!("Set shortcut for “{}”", tag.title);
+        }
         Mutation::StopRepeating { id, confirm } => {
             let t = task(state, id)?;
             if confirm != CONFIRM_PHRASE {
@@ -791,6 +808,16 @@ mod tests {
 
     fn parse(v: serde_json::Value) -> Mutation {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn tag_shortcut_is_one_key() {
+        let f = fixture();
+        let p = plan(&f.state, &parse(json!({"type":"setTagShortcut","id":f.tag,"shortcut":"e"})), &ctx()).unwrap();
+        assert_eq!(p.items[0].payload, json!({"sh":"e"}));
+        let p = plan(&f.state, &parse(json!({"type":"setTagShortcut","id":f.tag,"shortcut":null})), &ctx()).unwrap();
+        assert_eq!(p.items[0].payload, json!({"sh":""}));
+        assert!(plan(&f.state, &parse(json!({"type":"setTagShortcut","id":f.tag,"shortcut":"ab"})), &ctx()).is_err());
     }
 
     #[test]

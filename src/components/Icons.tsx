@@ -124,6 +124,20 @@ export const ChecklistIcon = (p: P) => (
   </Svg>
 );
 
+export const LinkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
+export const KeyboardIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="1.5" y="4" width="13" height="8.5" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M4 6.6h1M7 6.6h1M10 6.6h2M4 9.6h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Svg>
+);
+
 export const SidebarIcon = (p: P) => (
   <Svg {...p}>
     <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" stroke="currentColor" strokeWidth="1.3" />

@@ -127,4 +127,28 @@ export class MockBackend implements Backend {
 
   async hideQuickEntry() {}
   async showMainWindow() {}
+
+  async takeLinks() {
+    return [];
+  }
+
+  onLink() {
+    return () => {};
+  }
+
+  onReminder() {
+    return () => {};
+  }
+
+  /** Browser preview: downloads the JSON instead. */
+  async exportBackup() {
+    const body = JSON.stringify({ app: "Things 3 for Windows", exportedAt: new Date().toISOString(), snapshot: this.state.snapshot }, null, 2);
+    if (typeof URL.createObjectURL === "function") {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+      a.download = `things-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+    }
+    return "Downloads";
+  }
 }

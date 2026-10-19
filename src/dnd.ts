@@ -11,7 +11,8 @@ export const TASK_MIME = "application/x-tings3-task";
 export const HEADING_MIME = "application/x-tings3-heading";
 
 /** What is being dragged. dataTransfer can't be read during dragover, so it lives here. */
-export const drag: { ids: string[]; kind: "task" | "heading" | "project" | "area" | null } = { ids: [], kind: null };
+export const drag: { ids: string[]; kind: "task" | "heading" | "project" | "area" | "plus" | null } = { ids: [], kind: null };
+export const PLUS_MIME = "application/x-tings3-plus";
 
 export function startDrag(kind: NonNullable<typeof drag.kind>, ids: string[], e: React.DragEvent, mime = TASK_MIME) {
   drag.kind = kind;

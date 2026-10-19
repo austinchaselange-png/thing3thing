@@ -84,3 +84,37 @@ pub fn hide_quick_entry(app: AppHandle) {
 pub fn show_main_window(app: AppHandle) {
     shell::show_main(&app);
 }
+
+/// `things:` links the app was launched with (later ones arrive as "open-url" events).
+#[tauri::command]
+pub fn take_links(links: State<'_, crate::PendingLinks>) -> Vec<String> {
+    std::mem::take(&mut *links.0.lock().unwrap())
+}
+
+/// Saves everything (to-dos, projects, areas, tags, checklists) as JSON in
+/// Documents\Things 3 Backups and shows it in Explorer. Returns the file path.
+#[tauri::command]
+pub async fn export_backup(core: State<'_, Arc<Core>>) -> Res<String> {
+    blocking(&core, |c| {
+        let fail = |e: std::io::Error| json!({ "code": "storage", "message": format!("Couldn't save the backup: {e}") });
+        let state = c.state();
+        let docs = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).unwrap_or_default().join("Documents");
+        let dir = docs.join("Things 3 Backups");
+        std::fs::create_dir_all(&dir).map_err(fail)?;
+        let name = format!("things-backup-{}.json", chrono::Local::now().format("%Y-%m-%d-%H%M%S"));
+        let path = dir.join(name);
+        let body = json!({
+            "app": "Things 3 for Windows",
+            "exportedAt": chrono::Local::now().to_rfc3339(),
+            "account": state.account,
+            "snapshot": state.snapshot,
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&body).unwrap_or_default()).map_err(fail)?;
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+        }
+        Ok(path.display().to_string())
+    })
+    .await
+}

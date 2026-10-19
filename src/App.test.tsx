@@ -341,6 +341,79 @@ describe("App", () => {
     expect(within(find).getByRole("textbox")).toHaveValue("w");
   });
 
+  const fakeDT = () => ({ data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" });
+
+  it("Magic Plus: drag the + between to-dos to add one right there", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const dt = fakeDT();
+    fireEvent.dragStart(screen.getByRole("button", { name: "New To-Do" }), { dataTransfer: dt });
+    // jsdom has no pointer positions, so this drops above "Go for a run".
+    const target = inList("Go for a run").closest(".task-row")!;
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    expect(document.querySelector(".drop-line")).toBeInTheDocument();
+    fireEvent.drop(target, { dataTransfer: dt });
+    const input = await screen.findByRole("textbox", { name: "New to-do title" });
+    await userEvent.type(input, "Stretch{Enter}");
+    await waitFor(() => {
+      const order = rowOrder();
+      expect(order[order.indexOf("Go for a run") - 1]).toBe("Stretch");
+    });
+  });
+
+  it("Alt+key toggles a tag that has a shortcut", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => useStore.getState().apply({ type: "setTagShortcut", id: "tagErrand", shortcut: "e" }));
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.keyboard("{Alt>}e{/Alt}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).tagIds).toContain("tagErrand"));
+    await userEvent.keyboard("{Alt>}e{/Alt}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).tagIds).not.toContain("tagErrand"));
+  });
+
+  it("things:/// links add to-dos and show lists, like Things' URL scheme", async () => {
+    const { handleLink } = await import("./links");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => handleLink("things:///add?title=Buy%20milk&when=today&tags=Errand&list=Trip%20to%20Lisbon&checklist-items=a%0Ab"));
+    await waitFor(async () => {
+      const t = await taskByTitle(backend, "Buy milk");
+      expect(t.tagIds).toEqual(["tagErrand"]);
+      expect(t.projectId).toBe((await taskByTitle(backend, "Trip to Lisbon")).id);
+      expect((await backend.getState()).snapshot.checklist.filter((c) => c.taskId === t.id)).toHaveLength(2);
+    });
+    await act(() => handleLink("things:///show?id=upcoming"));
+    expect(await screen.findByRole("heading", { name: "Upcoming" })).toBeInTheDocument();
+    await act(() => handleLink("things:///search?query=lis"));
+    expect(within(await screen.findByRole("dialog", { name: "Quick Find" })).getByRole("textbox")).toHaveValue("lis");
+  });
+
+  it("areas collapse in the sidebar", async () => {
+    localStorage.removeItem("tings3.collapsedAreas");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByText("Trip to Lisbon")).toBeInTheDocument();
+    await userEvent.click(within(nav).getAllByRole("button", { name: "Hide projects", hidden: true })[0]);
+    expect(within(nav).queryByText("Trip to Lisbon")).not.toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole("button", { name: /Show 2 projects/, hidden: true }));
+    expect(within(nav).getByText("Trip to Lisbon")).toBeInTheDocument();
+  });
+
+  it("pasting several lines into a checklist adds one item per line", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.click(inList("Go for a run")); // open it
+    await userEvent.click(screen.getByTitle("Checklist"));
+    const input = screen.getByPlaceholderText("Add checklist item");
+    input.focus();
+    await userEvent.paste("shoes\nwater\n- [ ] watch");
+    const id = (await taskByTitle(backend, "Go for a run")).id;
+    await waitFor(async () => expect((await backend.getState()).snapshot.checklist.filter((c) => c.taskId === id).map((c) => c.title)).toEqual(["shoes", "water", "watch"]));
+  });
+
   it("Select mode from the list ••• menu, with Done to leave it", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Today" });

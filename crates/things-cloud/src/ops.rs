@@ -336,6 +336,18 @@ pub fn tag_create(tag_id: &str, title: &str, parent: Option<&str>) -> Result<Ite
     ))
 }
 
+/// `sh`: the tag's keyboard shortcut ("" for none).
+pub fn tag_shortcut(tag_id: &str, shortcut: Option<&str>) -> Result<Item, OpError> {
+    check_ids([&tag_id.to_string()])?;
+    Ok(Item::new(tag_id, kind::TAG, action::MODIFY, json!({ "sh": shortcut.unwrap_or("") })))
+}
+
+/// Moves a checklist item within its to-do.
+pub fn checklist_reorder(item_id: &str, index: i64) -> Result<Item, OpError> {
+    check_ids([&item_id.to_string()])?;
+    Ok(Item::new(item_id, kind::CHECKLIST_ITEM, action::MODIFY, json!({ "ix": index })))
+}
+
 pub fn tag_rename(tag_id: &str, title: &str) -> Result<Item, OpError> {
     check_ids([&tag_id.to_string()])?;
     if title.trim().is_empty() {

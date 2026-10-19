@@ -229,10 +229,19 @@ export function applyMutation(snap: Snapshot, m: Mutation, opts: { today?: strin
           tasks.set(t.id, { ...t, [m.key]: it.value, rev });
         } else if (m.key === "index" && areas.some((a) => a.id === it.id)) {
           areas = areas.map((a) => (a.id === it.id ? { ...a, index: it.value, rev } : a));
+        } else if (m.key === "index" && checklist.some((c) => c.id === it.id)) {
+          checklist = checklist.map((c) => (c.id === it.id ? { ...c, index: it.value, rev } : c));
         } else {
           throw new MutationError("notFound", "This item no longer exists.");
         }
       }
+      break;
+    }
+    case "setTagShortcut": {
+      const sh = m.shortcut?.trim() || null;
+      if (sh && [...sh].length !== 1) throw new MutationError("invalid", "A tag shortcut is a single key.");
+      if (!tags.some((t) => t.id === m.id)) throw new MutationError("notFound", "This tag no longer exists.");
+      tags = tags.map((t) => (t.id === m.id ? { ...t, shortcut: sh, rev } : t));
       break;
     }
     case "deleteTasks": {

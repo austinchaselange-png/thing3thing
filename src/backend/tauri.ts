@@ -65,4 +65,22 @@ export class TauriBackend implements Backend {
   showMainWindow() {
     return invoke<void>("show_main_window");
   }
+
+  takeLinks() {
+    return invoke<string[]>("take_links");
+  }
+
+  onLink(listener: (url: string) => void) {
+    const un = listen<string>("open-url", (e) => listener(e.payload));
+    return () => void un.then((f) => f());
+  }
+
+  onReminder(listener: (r: { taskId: string; title: string; at: string }) => void) {
+    const un = listen<{ taskId: string; title: string; at: string }>("reminder", (e) => listener(e.payload));
+    return () => void un.then((f) => f());
+  }
+
+  exportBackup() {
+    return invoke<string>("export_backup");
+  }
 }

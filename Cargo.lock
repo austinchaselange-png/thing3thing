@@ -4484,6 +4484,7 @@ dependencies = [
  "things-cloud",
  "things-sync",
  "thiserror 2.0.21",
+ "windows",
  "windows-version",
 ]
 

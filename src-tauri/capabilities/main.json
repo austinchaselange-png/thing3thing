@@ -20,6 +20,8 @@
     "allow-reapply-issue",
     "allow-update-settings",
     "allow-demo-simulate-remote-edit",
-    "allow-show-main-window"
+    "allow-show-main-window",
+    "allow-take-links",
+    "allow-export-backup"
   ]
 }
