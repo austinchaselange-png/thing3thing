@@ -3,7 +3,8 @@ import { getBackend } from "../backend";
 import { reveal } from "../actions";
 import { getThemePref, setThemePref, type ThemePref } from "../lib/theme";
 import { buildIndex, search } from "../lib/lists";
-import { isWriteError, useStore } from "../store";
+import { isWriteError, useStore, type SettingsTab } from "../store";
+import { DriveSettings } from "./DriveSettings";
 import type { Issue, ListId, Settings } from "../types";
 import { AreaIcon, CloseIcon, LIST_META, LockIcon, ProgressPie, SearchIcon, TagIcon, WarningIcon } from "./Icons";
 
@@ -349,11 +350,12 @@ function AboutTab() {
   );
 }
 
-export function SettingsDialog({ tab: initial }: { tab?: "account" | "sync" | "general" | "about" }) {
-  const [tab, setTab] = useState(initial ?? "account");
+export function SettingsDialog({ tab: initial }: { tab?: SettingsTab }) {
+  const [tab, setTab] = useState<SettingsTab>(initial ?? "account");
   const tabs = [
     ["account", "Account"],
     ["sync", "Sync"],
+    ["drive", "Google Drive"],
     ["general", "General"],
     ["about", "About"],
   ] as const;
@@ -368,6 +370,7 @@ export function SettingsDialog({ tab: initial }: { tab?: "account" | "sync" | "g
       </div>
       {tab === "account" && <AccountTab />}
       {tab === "sync" && <SyncTab />}
+      {tab === "drive" && <DriveSettings />}
       {tab === "general" && <GeneralTab />}
       {tab === "about" && <AboutTab />}
     </Modal>

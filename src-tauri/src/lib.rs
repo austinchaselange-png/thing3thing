@@ -3,6 +3,7 @@
 mod commands;
 mod core;
 mod credentials;
+mod drive;
 mod settings;
 mod shell;
 mod winshell;
@@ -34,6 +35,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let args: Vec<String> = std::env::args().collect();
             app.manage(PendingLinks(Mutex::new(winshell::links_in(&args))));
+            app.manage(std::sync::Arc::new(drive::Drive::default()));
             std::thread::spawn(|| {
                 winshell::register_url_scheme();
                 if let Err(e) = winshell::build_jump_list() {
@@ -57,6 +59,29 @@ pub fn run() {
             // Keep the OS autostart entry in line with the saved preference.
             let _ = shell::set_autostart(&handle, settings.launch_at_login);
 
+            // Google Drive backup: every 20 s, upload if anything changed (and connected).
+            {
+                let core = core.clone();
+                let drive: std::sync::Arc<drive::Drive> = app.state::<std::sync::Arc<drive::Drive>>().inner().clone();
+                let handle = handle.clone();
+                std::thread::Builder::new().name("tings3-drive".into()).spawn(move || {
+                    let mut pause_until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(20));
+                        if std::time::Instant::now() < pause_until || !drive.auto_ready() {
+                            continue;
+                        }
+                        let Some(body) = core.backup_payload() else { continue };
+                        match drive.back_up(&body, false) {
+                            Ok(false) => continue,
+                            Ok(true) => {}
+                            // Offline or Google unhappy: try again in 5 minutes.
+                            Err(_) => pause_until = std::time::Instant::now() + std::time::Duration::from_secs(300),
+                        }
+                        let _ = handle.emit_to(shell::MAIN, "drive", drive.status());
+                    }
+                })?;
+            }
             std::thread::Builder::new().name("tings3-sync".into()).spawn(move || core.run_worker())?;
             Ok(())
         })
@@ -76,6 +101,16 @@ pub fn run() {
             commands::show_main_window,
             commands::take_links,
             commands::export_backup,
+            commands::open_url,
+            commands::drive_status,
+            commands::drive_set_client,
+            commands::drive_connect,
+            commands::drive_disconnect,
+            commands::drive_set_auto,
+            commands::drive_backup_now,
+            commands::drive_list,
+            commands::drive_download,
+            commands::drive_restore,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Things 3");

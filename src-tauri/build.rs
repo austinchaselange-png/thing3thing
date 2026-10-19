@@ -17,6 +17,16 @@ const COMMANDS: &[&str] = &[
     "show_main_window",
     "take_links",
     "export_backup",
+    "open_url",
+    "drive_status",
+    "drive_set_client",
+    "drive_connect",
+    "drive_disconnect",
+    "drive_set_auto",
+    "drive_backup_now",
+    "drive_list",
+    "drive_download",
+    "drive_restore",
 ];
 
 fn main() {

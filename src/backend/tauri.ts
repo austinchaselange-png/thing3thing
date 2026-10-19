@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AppState, Mutation, Settings, WritePolicy, WriteReport } from "../types";
+import type { AppState, DriveBackup, DriveStatus, Mutation, Settings, WritePolicy, WriteReport } from "../types";
 import type { Backend } from "./Backend";
 
 /** Bridge to the Rust side (src-tauri/src/commands.rs). */
@@ -82,5 +82,50 @@ export class TauriBackend implements Backend {
 
   exportBackup() {
     return invoke<string>("export_backup");
+  }
+
+  openUrl(url: string) {
+    return invoke<void>("open_url", { url });
+  }
+
+  driveStatus() {
+    return invoke<DriveStatus>("drive_status");
+  }
+
+  driveSetClient(clientId: string, clientSecret: string) {
+    return invoke<DriveStatus>("drive_set_client", { clientId, clientSecret });
+  }
+
+  driveConnect() {
+    return invoke<DriveStatus>("drive_connect");
+  }
+
+  driveDisconnect() {
+    return invoke<DriveStatus>("drive_disconnect");
+  }
+
+  driveSetAuto(auto: boolean) {
+    return invoke<DriveStatus>("drive_set_auto", { auto });
+  }
+
+  driveBackupNow() {
+    return invoke<DriveStatus>("drive_backup_now");
+  }
+
+  driveList() {
+    return invoke<DriveBackup[]>("drive_list");
+  }
+
+  driveDownload(id: string, name: string) {
+    return invoke<string>("drive_download", { id, name });
+  }
+
+  driveRestore(id: string) {
+    return invoke<void>("drive_restore", { id });
+  }
+
+  onDrive(listener: (s: DriveStatus) => void) {
+    const un = listen<DriveStatus>("drive", (e) => listener(e.payload));
+    return () => void un.then((f) => f());
   }
 }

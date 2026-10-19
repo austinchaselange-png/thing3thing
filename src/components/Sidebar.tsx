@@ -5,7 +5,8 @@ import { todayYmd } from "../lib/dates";
 import { buildIndex, countFor, projectProgress, sidebarTree } from "../lib/lists";
 import { useStore } from "../store";
 import type { ListId, Selection, Task, When } from "../types";
-import { AreaIcon, ChevronIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
+import { ago as driveAgo } from "./DriveSettings";
+import { AreaIcon, ChevronIcon, DriveIcon, GearIcon, LIST_META, LockIcon, PlusIcon, ProgressPie, WarningIcon } from "./Icons";
 import { areaMenu, listMenu, tagMenu, taskMenu } from "./menus";
 import { Popover } from "./Pickers";
 import { SidebarWidgets } from "./SidebarWidgets";
@@ -244,6 +245,30 @@ export function SyncIndicator() {
   );
 }
 
+/** "Backed up to Google Drive · 2 min ago", under the sync status. */
+function DriveIndicator() {
+  const drive = useStore((s) => s.drive);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!drive?.connected) return null;
+  const text = drive.busy
+    ? "Backing up to Google Drive…"
+    : drive.lastError
+      ? "Google Drive backup failed"
+      : !drive.auto
+        ? "Google Drive backup is off"
+        : `Backed up to Drive ${driveAgo(drive.lastBackupAt)}`;
+  return (
+    <button className={`drive-indicator${drive.lastError ? " warn" : ""}`} title={drive.lastError ?? drive.email ?? undefined} onClick={() => useStore.getState().openDialog({ kind: "settings", tab: "drive" })}>
+      <DriveIcon size={12} />
+      <span>{text}</span>
+    </button>
+  );
+}
+
 export function Sidebar() {
   const view = useStore((s) => s.view)!;
   const openDialog = useStore((s) => s.openDialog);
@@ -340,6 +365,7 @@ export function Sidebar() {
           </button>
         </div>
         <SyncIndicator />
+        <DriveIndicator />
       </div>
       {menuAnchor && (
         <Popover anchor={menuAnchor} onClose={() => setMenuAnchor(null)} width={240}>

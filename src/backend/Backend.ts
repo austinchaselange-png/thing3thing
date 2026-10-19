@@ -1,4 +1,4 @@
-import type { AppState, Mutation, Settings, WritePolicy, WriteReport } from "../types";
+import type { AppState, DriveBackup, DriveStatus, Mutation, Settings, WritePolicy, WriteReport } from "../types";
 
 /**
  * Everything the UI needs from the app. Implemented by the Tauri bridge
@@ -31,4 +31,19 @@ export interface Backend {
   onReminder(listener: (r: { taskId: string; title: string; at: string }) => void): () => void;
   /** Saves a JSON backup; returns where it went. */
   exportBackup(): Promise<string>;
+  openUrl(url: string): Promise<void>;
+  // Google Drive backup
+  driveStatus(): Promise<DriveStatus>;
+  driveSetClient(clientId: string, clientSecret: string): Promise<DriveStatus>;
+  driveConnect(): Promise<DriveStatus>;
+  driveDisconnect(): Promise<DriveStatus>;
+  driveSetAuto(auto: boolean): Promise<DriveStatus>;
+  driveBackupNow(): Promise<DriveStatus>;
+  driveList(): Promise<DriveBackup[]>;
+  /** Saves a backup to this PC; returns where. */
+  driveDownload(id: string, name: string): Promise<string>;
+  /** Lists stored on this PC only. */
+  driveRestore(id: string): Promise<void>;
+  /** Status after automatic backups. */
+  onDrive(listener: (s: DriveStatus) => void): () => void;
 }

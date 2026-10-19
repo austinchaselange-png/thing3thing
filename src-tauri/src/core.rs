@@ -643,6 +643,63 @@ impl Core {
         Ok(())
     }
 
+    /// Everything, as one JSON document for backups. "On this PC" accounts also
+    /// include their full history so a restore is exact. None when there's
+    /// nothing to back up (signed out, empty, or the engine is busy syncing).
+    pub fn backup_payload(&self) -> Option<Vec<u8>> {
+        let state = self.state();
+        if matches!(self.settings().mode, AccountMode::SignedOut) {
+            return None;
+        }
+        if state.snapshot.tasks.is_empty() && state.snapshot.areas.is_empty() && state.snapshot.tags.is_empty() {
+            return None; // never replace a good backup with an empty one
+        }
+        let history = match self.inner.try_lock() {
+            Ok(inner) => inner.fake.as_ref().map(|f| f.history()),
+            Err(_) => return None,
+        };
+        // No timestamp inside: unchanged data must hash the same (Drive keeps the file's time).
+        let body = json!({
+            "format": "things3-windows-backup",
+            "version": 1,
+            "account": state.account,
+            "snapshot": state.snapshot,
+            "history": history,
+        });
+        serde_json::to_vec_pretty(&body).ok()
+    }
+
+    /// Replaces "On this PC" data with a backup. The current data is kept next
+    /// to it as demo-history.before-restore-<time>.json.
+    pub fn restore_local(&self, bytes: &[u8]) -> Result<(), Value> {
+        if !matches!(self.settings().mode, AccountMode::Demo) {
+            return Err(plain_error("invalid", "Restoring is only for lists stored on this PC. Things Cloud already keeps your data safe on its servers."));
+        }
+        let v: Value = serde_json::from_slice(bytes).map_err(|_| plain_error("invalid", "That backup file can't be read."))?;
+        if v["format"] != "things3-windows-backup" {
+            return Err(plain_error("invalid", "That isn't a Things 3 backup."));
+        }
+        let history: Vec<Vec<Item>> = serde_json::from_value(v["history"].clone())
+            .map_err(|_| plain_error("invalid", "This backup came from a Things Cloud account, so it can't replace lists stored on this PC."))?;
+        let mut inner = self.lock_inner();
+        inner.engine = None;
+        inner.fake = None;
+        let path = self.data_dir.join("demo-history.json");
+        if path.exists() {
+            let keep = self.data_dir.join(format!("demo-history.before-restore-{}.json", Local::now().format("%Y%m%d-%H%M%S")));
+            let _ = std::fs::copy(&path, keep);
+        }
+        std::fs::write(&path, serde_json::to_vec(&history).unwrap_or_default()).map_err(|e| plain_error("storage", e.to_string()))?;
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(self.data_dir.join(format!("demo-cache.sqlite{ext}")));
+        }
+        self.open_demo(&mut inner).map_err(|e| plain_error("storage", e.to_string()))?;
+        self.publish(&inner);
+        drop(inner);
+        self.wake();
+        Ok(())
+    }
+
     pub fn use_demo(&self) -> Result<(), Value> {
         let mut inner = self.lock_inner();
         self.open_demo(&mut inner).map_err(|e| plain_error("storage", e.to_string()))?;

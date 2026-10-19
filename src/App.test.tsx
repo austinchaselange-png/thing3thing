@@ -414,6 +414,40 @@ describe("App", () => {
     await waitFor(async () => expect((await backend.getState()).snapshot.checklist.filter((c) => c.taskId === id).map((c) => c.title)).toEqual(["shoes", "water", "watch"]));
   });
 
+  it("Google Drive backup: set up, connect, back up, restore and disconnect", async () => {
+    useStore.setState({ drive: null });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => useStore.getState().openDialog({ kind: "settings", tab: "drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Set Up Google Drive…" }));
+    await userEvent.type(within(dialog).getByLabelText("Client ID"), "not-a-client");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/doesn't look like a Google OAuth client ID/)).toBeInTheDocument();
+    await userEvent.clear(within(dialog).getByLabelText("Client ID"));
+    await userEvent.type(within(dialog).getByLabelText("Client ID"), "123-abc.apps.googleusercontent.com");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Connect Google Drive…" }));
+    expect(await within(dialog).findByText("you@gmail.com")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Latest")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Last backup just now/)).toBeInTheDocument();
+    // The sidebar says so too.
+    expect(within(screen.getByRole("navigation")).getByRole("button", { name: /Backed up to Drive just now/ })).toBeInTheDocument();
+
+    // Restore (lists on this PC): delete something, then bring it back.
+    const t = useStore.getState().view!.tasks.find((x) => x.title === "Water the plants")!;
+    await act(() => useStore.getState().apply({ type: "setTrashed", id: t.id, baseRev: t.rev, trashed: true }));
+    const latest = within(dialog).getByText("Latest").closest(".drive-row") as HTMLElement;
+    await userEvent.click(within(latest).getByRole("button", { name: "Restore…" }));
+    await userEvent.click(within(latest).getByRole("button", { name: "Restore" }));
+    await waitFor(async () => expect((await taskByTitle(backend, "Water the plants")).trashed).toBe(false));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    expect(await within(dialog).findByRole("button", { name: "Connect Google Drive…" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation")).queryByRole("button", { name: /Backed up to Drive/ })).not.toBeInTheDocument();
+  });
+
   it("Select mode from the list ••• menu, with Done to leave it", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Today" });

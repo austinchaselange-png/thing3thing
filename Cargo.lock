@@ -4469,12 +4469,15 @@ dependencies = [
 name = "tings3"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "log",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

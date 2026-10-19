@@ -1,4 +1,4 @@
-import type { AppState, Mutation, Settings, Snapshot, WriteError, WritePolicy, WriteReport } from "../types";
+import type { AppState, DriveBackup, DriveStatus, Mutation, Settings, Snapshot, WriteError, WritePolicy, WriteReport } from "../types";
 import { DESTRUCTIVE } from "../types";
 import { applyMutation, MutationError } from "../lib/applyMutation";
 import type { Backend } from "./Backend";
@@ -150,5 +150,77 @@ export class MockBackend implements Backend {
       a.click();
     }
     return "Downloads";
+  }
+
+  async openUrl() {}
+
+  // ---------- Google Drive (in memory) ----------
+  private drive: DriveStatus = { configured: false, builtInClient: false, connected: false, email: null, name: null, auto: true, busy: false, lastBackupAt: null, lastError: null, folderLink: null };
+  private driveFiles: (DriveBackup & { body: string })[] = [];
+  private driveListeners = new Set<(s: DriveStatus) => void>();
+
+  private driveEmit(patch: Partial<DriveStatus>) {
+    this.drive = { ...this.drive, ...patch };
+    for (const l of this.driveListeners) l(this.drive);
+    return this.drive;
+  }
+
+  async driveStatus() {
+    return this.drive;
+  }
+
+  async driveSetClient(clientId: string) {
+    if (!clientId.trim().endsWith(".apps.googleusercontent.com"))
+      throw { code: "invalid", message: "That doesn't look like a Google OAuth client ID (it ends with .apps.googleusercontent.com)." } satisfies WriteError;
+    return this.driveEmit({ configured: true });
+  }
+
+  async driveConnect() {
+    await this.wait();
+    this.driveEmit({ connected: true, email: "you@gmail.com", name: "You", folderLink: "https://drive.google.com/drive/folders/mock" });
+    return this.driveBackupNow();
+  }
+
+  async driveDisconnect() {
+    return this.driveEmit({ connected: false, email: null, name: null, lastBackupAt: null, folderLink: null });
+  }
+
+  async driveSetAuto(auto: boolean) {
+    return this.driveEmit({ auto });
+  }
+
+  async driveBackupNow() {
+    if (!this.drive.connected) throw { code: "noAccount", message: "Connect Google Drive in Settings first." } satisfies WriteError;
+    const body = JSON.stringify({ format: "things3-windows-backup", version: 1, snapshot: this.state.snapshot });
+    const now = new Date();
+    const ymd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const day = `Things 3 – ${ymd}.json`;
+    const put = (name: string, latest: boolean) => {
+      this.driveFiles = this.driveFiles.filter((f) => f.name !== name);
+      this.driveFiles.unshift({ id: `mock-${name}`, name, latest, modifiedTime: now.toISOString(), size: body.length, body });
+    };
+    put(day, false);
+    put("Things 3 – Latest.json", true);
+    return this.driveEmit({ lastBackupAt: now.getTime(), lastError: null });
+  }
+
+  async driveList(): Promise<DriveBackup[]> {
+    return this.driveFiles.map(({ body: _b, ...f }) => f);
+  }
+
+  async driveDownload(_id: string, name: string) {
+    return `Documents\\Things 3 Backups\\${name}`;
+  }
+
+  async driveRestore(id: string) {
+    if (this.state.account.mode !== "demo") throw { code: "invalid", message: "Restoring is only for lists stored on this PC." } satisfies WriteError;
+    const f = this.driveFiles.find((x) => x.id === id);
+    if (!f) throw { code: "notFound", message: "Unknown backup." } satisfies WriteError;
+    this.emit({ snapshot: JSON.parse(f.body).snapshot });
+  }
+
+  onDrive(listener: (s: DriveStatus) => void) {
+    this.driveListeners.add(listener);
+    return () => this.driveListeners.delete(listener);
   }
 }

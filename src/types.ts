@@ -220,3 +220,25 @@ export type Selection =
   | { kind: "project"; id: string }
   | { kind: "area"; id: string }
   | { kind: "tag"; id: string };
+
+/** Google Drive backup (src-tauri/src/drive.rs). */
+export interface DriveStatus {
+  configured: boolean;
+  builtInClient: boolean;
+  connected: boolean;
+  email: string | null;
+  name: string | null;
+  auto: boolean;
+  busy: boolean;
+  lastBackupAt: number | null;
+  lastError: string | null;
+  folderLink: string | null;
+}
+
+export interface DriveBackup {
+  id: string;
+  name: string;
+  modifiedTime: string | null;
+  size: number | null;
+  latest: boolean;
+}

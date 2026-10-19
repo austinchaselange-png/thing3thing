@@ -124,6 +124,13 @@ export const ChecklistIcon = (p: P) => (
   </Svg>
 );
 
+export const DriveIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4.6 12.6h7.3a2.7 2.7 0 0 0 .4-5.4 3.8 3.8 0 0 0-7.3-.9A3.2 3.2 0 0 0 4.6 12.6Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="m6.4 9.6 1.4 1.3 2.6-2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const LinkIcon = (p: P) => (
   <Svg {...p}>
     <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />

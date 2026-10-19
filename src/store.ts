@@ -2,10 +2,12 @@ import { create } from "zustand";
 import { getBackend } from "./backend";
 import { applyMutation } from "./lib/applyMutation";
 import { inverseOf, type UndoStep } from "./lib/undo";
-import type { AppState, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
+import type { AppState, DriveStatus, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
+
+export type SettingsTab = "account" | "sync" | "drive" | "general" | "about";
 
 export type Dialog =
-  | { kind: "settings"; tab?: "account" | "sync" | "general" | "about" }
+  | { kind: "settings"; tab?: SettingsTab }
   | { kind: "quickFind"; initial?: string }
   | { kind: "conflict"; mutation: Mutation; error: WriteError }
   | { kind: "confirm"; title: string; body: string; mutation: Mutation; phrase: boolean }
@@ -111,6 +113,8 @@ interface Store {
   redo(): Promise<void>;
   sidebarHidden: boolean;
   toggleSidebar(): void;
+  /** Google Drive backup status; null until loaded. */
+  drive: DriveStatus | null;
   canWrite(): boolean;
 }
 
@@ -152,6 +156,7 @@ export const useStore = create<Store>((set, get) => ({
   picker: null,
   undoStack: [],
   redoStack: [],
+  drive: null,
   sidebarHidden: readPref("tings3.sidebarHidden") === "1",
 
   toggleSidebar() {
@@ -202,6 +207,8 @@ export const useStore = create<Store>((set, get) => ({
   async init() {
     const backend = getBackend();
     backend.subscribe((app) => get().setApp(app));
+    backend.onDrive((drive) => set({ drive }));
+    void backend.driveStatus().then((drive) => set({ drive }), () => {});
     try {
       get().setApp(await backend.getState());
     } catch (e) {

@@ -3227,3 +3227,185 @@ html.quick-entry #root {
 .add-bubble[draggable="true"] {
   cursor: grab;
 }
+
+/* ---------------- Google Drive backup ---------------- */
+.drive-settings h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.drive-hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.drive-hero p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.drive-hero-icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(160deg, #4f9cff, #1a73e8);
+  box-shadow: 0 4px 12px color-mix(in srgb, #1a73e8 35%, transparent);
+}
+
+.drive-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.drive-settings .hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.link-btn.small {
+  font-size: 12px;
+}
+
+.drive-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.drive-setup > .btn {
+  align-self: flex-start;
+}
+
+.drive-steps {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.drive-steps li + li {
+  margin-top: 4px;
+}
+
+.drive-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+
+.drive-account b,
+.drive-account small,
+.drive-row b,
+.drive-row small {
+  display: block;
+}
+
+.drive-account small,
+.drive-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.drive-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(160deg, #4f9cff, #1a73e8);
+}
+
+.drive-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 14px;
+  color: var(--text-2);
+}
+
+.drive-status svg {
+  color: var(--good);
+  flex: none;
+}
+
+.drive-status.error,
+.drive-status.error svg {
+  color: var(--danger);
+}
+
+.drive-list-title {
+  font-size: 12px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.drive-list {
+  max-height: 210px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.drive-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.drive-row + .drive-row {
+  border-top: 1px solid var(--hair);
+}
+
+.drive-row.muted {
+  color: var(--muted);
+}
+
+.drive-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.drive-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.drive-indicator span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-indicator:hover {
+  color: var(--text);
+}
+
+.drive-indicator.warn {
+  color: var(--warn);
+}
