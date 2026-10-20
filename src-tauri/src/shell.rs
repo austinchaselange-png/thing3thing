@@ -18,7 +18,7 @@ pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Things 3")
         .inner_size(1120.0, 740.0)
-        .min_inner_size(720.0, 480.0)
+        .min_inner_size(360.0, 420.0)
         .decorations(false) // the UI draws its own title bar and traffic lights
         // Tauri's file-drop handler swallows HTML5 drag and drop on Windows,
         // which the UI needs for reordering to-dos.

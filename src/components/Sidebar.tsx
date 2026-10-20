@@ -118,6 +118,7 @@ function NavItem({
   };
   return (
     <button
+      title={label}
       className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}${line ? ` line-${line}` : ""}`}
       onClick={() => useStore.getState().select(sel)}
       onDoubleClick={() => {

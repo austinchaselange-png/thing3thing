@@ -3827,3 +3827,100 @@ html.quick-entry #root {
   padding-left: 72px;
   padding-right: 32px;
 }
+
+/* ---------------- crunched: split view and very narrow windows ---------------- */
+@media (max-width: 800px) {
+  /* Icon-only sidebar. */
+  .app:not(.no-sidebar) {
+    grid-template-columns: 56px 1fr;
+  }
+  .toasts {
+    left: calc(50% + 28px);
+  }
+  .side-top {
+    justify-content: center;
+    padding: 0;
+  }
+  .brand-name,
+  .sidebar .nav-label,
+  .sidebar .nav-count,
+  .sidebar .nav-collapse,
+  .side-widgets,
+  .sidebar .status-text {
+    display: none;
+  }
+  .sidebar-scroll {
+    padding: 2px 8px 10px;
+  }
+  .nav-group {
+    margin-bottom: 10px;
+  }
+  .sidebar .nav-item {
+    position: relative;
+    justify-content: center;
+    padding: 0;
+  }
+  .sidebar .nav-badge {
+    position: absolute;
+    top: 3px;
+    right: 6px;
+    min-width: 8px;
+    height: 8px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    border-radius: 50%;
+  }
+  .sidebar-foot {
+    padding: 8px 8px;
+  }
+  .foot-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .foot-row .grow {
+    display: none;
+  }
+  .settings-row,
+  .new-list {
+    width: 100%;
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+  }
+  .sidebar .sync-indicator {
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* Tighter top bar and lists. */
+  .topbar {
+    padding: 0 10px 0 12px;
+    gap: 8px;
+  }
+  .search-field {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+  .search-field .grow,
+  .search-field kbd {
+    display: none;
+  }
+  .list-header,
+  .groups,
+  .tag-filter,
+  .logbook-filters {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .tag-filter {
+    padding-left: 16px;
+  }
+}
+@media (max-width: 560px) {
+  .tb-title {
+    display: none;
+  }
+}
