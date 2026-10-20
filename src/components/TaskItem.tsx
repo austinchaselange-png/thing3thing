@@ -28,6 +28,7 @@ import {
 } from "./Icons";
 import { bulkMenu, checklistMenu, taskMenu } from "./menus";
 import { DeadlinePicker, MovePicker, TagPicker, WhenPicker } from "./Pickers";
+import { NotesField } from "./NotesField";
 
 const EMPTY_TAGS: Tag[] = [];
 
@@ -277,12 +278,6 @@ function ContainerLink({ task }: { task: Task }) {
   );
 }
 
-function autosize(el: HTMLTextAreaElement | null) {
-  if (!el) return;
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
-}
-
 type Picker = "when" | "tags" | "deadline" | "move" | null;
 
 export function TaskEditor({ task }: { task: Task }) {
@@ -296,7 +291,6 @@ export function TaskEditor({ task }: { task: Task }) {
   const [picker, setPicker] = useState<Picker>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [showChecklist, setShowChecklist] = useState(checklist.length > 0);
-  const notesRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   // Base revision: the version the user started editing, for conflict detection.
@@ -304,13 +298,12 @@ export function TaskEditor({ task }: { task: Task }) {
 
   useEffect(() => {
     titleRef.current?.focus();
-    autosize(notesRef.current);
   }, []);
 
-  const save = () => {
+  const save = (nextNotes: string = notes) => {
     const patch: { title?: string; notes?: string } = {};
     if (title.trim() && title.trim() !== task.title) patch.title = title.trim();
-    if (notes !== task.notes) patch.notes = notes;
+    if (nextNotes !== task.notes) patch.notes = nextNotes;
     if (Object.keys(patch).length && writable) void apply({ type: "updateTask", id: task.id, baseRev: baseRev.current, ...patch });
   };
   const close = () => {
@@ -371,19 +364,15 @@ export function TaskEditor({ task }: { task: Task }) {
           aria-label="Title"
         />
       </div>
-      <textarea
-        ref={notesRef}
+      <NotesField
         className="editor-notes"
-        placeholder="Notes"
         value={notes}
         readOnly={!writable}
-        rows={1}
-        onChange={(e) => {
-          setNotes(e.target.value);
-          autosize(e.target);
+        onChange={setNotes}
+        onCommit={(v) => {
+          setNotes(v);
+          save(v);
         }}
-        onBlur={save}
-        aria-label="Notes"
       />
       {showChecklist && <ChecklistEditor taskId={task.id} items={checklist} writable={writable} />}
       {task.repeat && (

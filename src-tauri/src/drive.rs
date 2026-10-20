@@ -104,15 +104,15 @@ fn err(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into() })
 }
 
-fn http() -> reqwest::blocking::Client {
+pub(crate) fn http() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")
 }
 
-fn b64url(bytes: &[u8]) -> String {
+pub(crate) fn b64url(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
@@ -246,7 +246,7 @@ impl Drive {
         );
         open_in_browser(&url)?;
 
-        let code = wait_for_code(&listener, &state)?;
+        let code = wait_for_code(&listener, &state, "Google Drive")?;
         let resp: Value = http()
             .post("https://oauth2.googleapis.com/token")
             .form(&[
@@ -514,7 +514,8 @@ fn respond(stream: &mut std::net::TcpStream, title: &str, body: &str) {
 }
 
 /// Waits for Google to send the browser back with `?code=…&state=…`.
-fn wait_for_code(listener: &TcpListener, state: &str) -> Res<String> {
+/// `product` names what is being connected on the page the browser shows.
+pub(crate) fn wait_for_code(listener: &TcpListener, state: &str, product: &str) -> Res<String> {
     listener.set_nonblocking(true).map_err(|e| err("storage", e.to_string()))?;
     let deadline = Instant::now() + Duration::from_secs(180);
     while Instant::now() < deadline {
@@ -529,12 +530,12 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Res<String> {
                 let query = path.split_once('?').map(|(_, q)| q).unwrap_or("");
                 let param = |k: &str| query.split('&').find_map(|kv| kv.split_once('=').filter(|(a, _)| *a == k).map(|(_, v)| percent_decode(v)));
                 if let Some(e) = param("error") {
-                    respond(&mut stream, "Google Drive wasn't connected", "You can close this tab and try again in Things 3.");
-                    return Err(err("rejected", if e == "access_denied" { "You declined access to Google Drive.".into() } else { format!("Google returned: {e}") }));
+                    respond(&mut stream, &format!("{product} wasn't connected"), "You can close this tab and try again in Things 3.");
+                    return Err(err("rejected", if e == "access_denied" { format!("You declined access to {product}.") } else { format!("Google returned: {e}") }));
                 }
                 match (param("code"), param("state")) {
                     (Some(code), Some(s)) if s == state => {
-                        respond(&mut stream, "Google Drive is connected", "You can close this tab and go back to Things 3.");
+                        respond(&mut stream, &format!("{product} is connected"), "You can close this tab and go back to Things 3.");
                         return Ok(code);
                     }
                     _ => respond(&mut stream, "Things 3", "Waiting for Google…"), // e.g. a favicon request

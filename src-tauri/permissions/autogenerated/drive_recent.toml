@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-recent"
+description = "Enables the drive_recent command without any pre-configured scope."
+commands.allow = ["drive_recent"]
+
+[[permission]]
+identifier = "deny-drive-recent"
+description = "Denies the drive_recent command without any pre-configured scope."
+commands.deny = ["drive_recent"]

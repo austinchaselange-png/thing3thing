@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "project-window",
+  "description": "A project opened in its own window: to-dos only, no account, settings or calendar access.",
+  "windows": ["project-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "allow-get-state",
+    "allow-sync-now",
+    "allow-apply-mutation",
+    "allow-show-main-window",
+    "allow-open-url"
+  ]
+}

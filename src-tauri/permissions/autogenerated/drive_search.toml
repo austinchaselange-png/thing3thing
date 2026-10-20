@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-search"
+description = "Enables the drive_search command without any pre-configured scope."
+commands.allow = ["drive_search"]
+
+[[permission]]
+identifier = "deny-drive-search"
+description = "Denies the drive_search command without any pre-configured scope."
+commands.deny = ["drive_search"]

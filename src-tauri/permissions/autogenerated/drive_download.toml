@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-download"
+description = "Enables the drive_download command without any pre-configured scope."
+commands.allow = ["drive_download"]
+
+[[permission]]
+identifier = "deny-drive-download"
+description = "Denies the drive_download command without any pre-configured scope."
+commands.deny = ["drive_download"]

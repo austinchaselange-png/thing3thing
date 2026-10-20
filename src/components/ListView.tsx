@@ -2,12 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { newTaskDefaults } from "../actions";
 import { canDropInto, drag, dropHeadings, dropTasks, endDrag, HEADING_MIME, nudge, startDrag } from "../dnd";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
-import { buildIndex, groupsFor, projectProgress, type Group } from "../lib/lists";
+import { buildIndex, groupsFor, isLogbookFiltered, logbookMatcher, projectProgress, type Group } from "../lib/lists";
 import { parseQuickEntry } from "../lib/quickParse";
 import { useStore } from "../store";
 import type { Selection, Snapshot, Task } from "../types";
 import { AreaIcon, FlagIcon, LIST_META, MoonIcon, MoreIcon, ProgressPie, TagIcon } from "./Icons";
 import { areaTitleMenu, headingMenu, listViewMenu, newItemsMenu, projectMenu, tagMenu } from "./menus";
+import { LogbookFilters, useLogbookFilter } from "./LogbookFilters";
+import { NotesField } from "./NotesField";
 import { isSomeday } from "./TaskItem";
 import { TaskRow, type RowContext } from "./TaskItem";
 
@@ -120,15 +122,16 @@ function ProjectHeader({ project }: { project: Task }) {
         )}
         {project.repeat && <span className="crumb">{project.repeat.summary}</span>}
       </div>
-      <textarea
+      <NotesField
         className="project-notes"
         value={notes}
         readOnly={!writable}
-        placeholder="Notes"
-        rows={Math.max(1, notes.split("\n").length)}
-        onChange={(e) => setNotes(e.target.value)}
-        onBlur={() => notes !== project.notes && save({ notes })}
-        aria-label="Project notes"
+        label="Project notes"
+        onChange={setNotes}
+        onCommit={(v) => {
+          setNotes(v);
+          if (v !== project.notes) save({ notes: v });
+        }}
       />
     </header>
   );
@@ -204,9 +207,13 @@ export function ListView() {
     return view.tags.filter((t) => ids.has(t.id));
   }, [groups, view.tags]);
   const laterCount = selection.kind === "project" ? groups.filter((g) => g.key !== "done").reduce((n, g) => n + g.tasks.filter((t) => t.startDate && t.startDate > today).length, 0) : 0;
+  const isLogbook = selection.kind === "list" && selection.id === "logbook";
+  const logFilter = useLogbookFilter((s) => s.filter);
+  const logMatch = useMemo(() => (isLogbook && isLogbookFiltered(logFilter) ? logbookMatcher(logFilter, visibleSnap, ix, today) : null), [isLogbook, logFilter, visibleSnap, ix, today]);
   const filtered: Group[] = groups
     .map((g) => (tagFilter ? { ...g, tasks: g.tasks.filter((t) => t.tagIds.includes(tagFilter)) } : g))
-    .map((g) => (hideLater && g.key !== "done" ? { ...g, tasks: g.tasks.filter((t) => !(t.startDate && t.startDate > today)) } : g));
+    .map((g) => (hideLater && g.key !== "done" ? { ...g, tasks: g.tasks.filter((t) => !(t.startDate && t.startDate > today)) } : g))
+    .map((g) => (logMatch ? { ...g, tasks: g.tasks.filter(logMatch) } : g));
 
   // Global "new to-do" requests (Ctrl+N, toolbar, tray).
   useEffect(() => {
@@ -360,6 +367,7 @@ export function ListView() {
           </div>
         </header>
       )}
+      {isLogbook && groups.some((g) => g.tasks.length) && <LogbookFilters view={view} shown={filtered.filter((g) => g.tasks.length)} total={groups.reduce((n, g) => n + g.tasks.length, 0)} />}
       {usedTags.length > 0 && (
         <div className="tag-filter" role="toolbar" aria-label="Filter by tag">
           <button className={`chip${!tagFilter ? " active" : ""}`} onClick={() => setTagFilter(null)}>
@@ -464,7 +472,7 @@ export function ListView() {
             {hideLater ? `Show ${laterCount} later item${laterCount === 1 ? "" : "s"}` : "Hide later items"}
           </button>
         )}
-        {isEmpty && draft === null && !showUpcomingEmptyDays && <EmptyState sel={selection} />}
+        {isEmpty && draft === null && !showUpcomingEmptyDays && !(isLogbook && (logMatch || tagFilter) && groups.some((g) => g.tasks.length)) && <EmptyState sel={selection} />}
       </div>
     </section>
   );

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getBackend } from "./backend";
 import { applyMutation } from "./lib/applyMutation";
 import { inverseOf, type UndoStep } from "./lib/undo";
+import { projectWindowId } from "./windowMode";
 import type { AppState, DriveStatus, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
 
 export type SettingsTab = "account" | "sync" | "drive" | "general" | "about";
@@ -142,7 +143,7 @@ export const useStore = create<Store>((set, get) => ({
   loadError: null,
   view: null,
   pending: [],
-  selection: { kind: "list", id: "today" },
+  selection: projectWindowId ? { kind: "project", id: projectWindowId } : { kind: "list", id: "today" },
   selectedId: null,
   selectedIds: [],
   anchorId: null,
@@ -157,9 +158,10 @@ export const useStore = create<Store>((set, get) => ({
   undoStack: [],
   redoStack: [],
   drive: null,
-  sidebarHidden: readPref("tings3.sidebarHidden") === "1",
+  sidebarHidden: projectWindowId ? true : readPref("tings3.sidebarHidden") === "1",
 
   toggleSidebar() {
+    if (projectWindowId) return;
     const sidebarHidden = !get().sidebarHidden;
     writePref("tings3.sidebarHidden", sidebarHidden ? "1" : "0");
     set({ sidebarHidden });
@@ -207,8 +209,10 @@ export const useStore = create<Store>((set, get) => ({
   async init() {
     const backend = getBackend();
     backend.subscribe((app) => get().setApp(app));
-    backend.onDrive((drive) => set({ drive }));
-    void backend.driveStatus().then((drive) => set({ drive }), () => {});
+    if (!projectWindowId) {
+      backend.onDrive((drive) => set({ drive }));
+      void backend.driveStatus().then((drive) => set({ drive }), () => {});
+    }
     try {
       get().setApp(await backend.getState());
     } catch (e) {

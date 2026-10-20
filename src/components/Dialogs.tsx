@@ -515,7 +515,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
   ["Edit", [["Undo", "Ctrl+Z"], ["Redo", "Ctrl+Shift+Z"]]],
   ["When", [["Today", "Ctrl+T"], ["This Evening", "Ctrl+E"], ["Anytime", "Ctrl+R"], ["Someday", "Ctrl+O"], ["Choose date…", "Ctrl+S"]]],
   ["Organise", [["Move…", "Ctrl+Shift+M"], ["Tags…", "Ctrl+Shift+T"], ["Deadline…", "Ctrl+Shift+D"]]],
-  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Type Travel", "Just start typing"], ["Hide sidebar", "Ctrl+Alt+S"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
+  ["Navigate", [["Inbox … Trash", "Ctrl+1 … 7"], ["Previous / next to-do", "↑ / ↓"], ["Quick Find", "Ctrl+F"], ["Type Travel", "Just start typing"], ["Hide sidebar", "Ctrl+Alt+S"], ["Calendar panel", "Ctrl+Alt+C"], ["Search the Logbook", "Ctrl+Shift+F"], ["Sync now", "F5"], ["Settings", "Ctrl+,"], ["This list", "Ctrl+/"]]],
 ];
 
 export function ShortcutsDialog() {

@@ -32,6 +32,14 @@
     "allow-drive-backup-now",
     "allow-drive-list",
     "allow-drive-download",
-    "allow-drive-restore"
+    "allow-drive-restore",
+    "allow-open-project-window",
+    "allow-gcal-status",
+    "allow-gcal-set-client",
+    "allow-gcal-connect",
+    "allow-gcal-disconnect",
+    "allow-gcal-calendars",
+    "allow-gcal-set-visible",
+    "allow-gcal-events"
   ]
 }

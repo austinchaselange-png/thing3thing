@@ -85,6 +85,12 @@ pub fn show_main_window(app: AppHandle) {
     shell::show_main(&app);
 }
 
+/// Opens a project in its own window.
+#[tauri::command]
+pub fn open_project_window(app: AppHandle, id: String, title: String) -> Res<()> {
+    shell::open_project_window(&app, &id, &title).map_err(|e| json!({ "code": "storage", "message": format!("Couldn't open a window: {e}") }))
+}
+
 /// `things:` links the app was launched with (later ones arrive as "open-url" events).
 #[tauri::command]
 pub fn take_links(links: State<'_, crate::PendingLinks>) -> Vec<String> {
@@ -218,4 +224,52 @@ pub async fn drive_restore(drive: DriveState<'_>, core: State<'_, Arc<Core>>, id
         core.restore_local(&bytes)
     })
     .await
+}
+
+// ---------- Google Calendar side panel (read-only, separate sign-in) ----------
+
+type CalState<'a> = State<'a, Arc<crate::gcal::GCal>>;
+
+async fn cal_blocking<T: Send + 'static>(c: &CalState<'_>, f: impl FnOnce(&crate::gcal::GCal) -> Res<T> + Send + 'static) -> Res<T> {
+    let c = Arc::clone(c.inner());
+    tauri::async_runtime::spawn_blocking(move || f(&c))
+        .await
+        .unwrap_or_else(|e| Err(json!({ "code": "storage", "message": format!("internal error: {e}") })))
+}
+
+#[tauri::command]
+pub async fn gcal_status(cal: CalState<'_>) -> Res<crate::gcal::CalStatus> {
+    cal_blocking(&cal, |c| Ok(c.status())).await
+}
+
+#[tauri::command]
+pub async fn gcal_set_client(cal: CalState<'_>, client_id: String, client_secret: String) -> Res<crate::gcal::CalStatus> {
+    cal_blocking(&cal, move |c| c.set_client(client_id, client_secret)).await
+}
+
+#[tauri::command]
+pub async fn gcal_connect(app: AppHandle, cal: CalState<'_>) -> Res<crate::gcal::CalStatus> {
+    let result = cal_blocking(&cal, |c| c.connect()).await;
+    shell::show_main(&app); // back from the browser
+    result
+}
+
+#[tauri::command]
+pub async fn gcal_disconnect(cal: CalState<'_>) -> Res<crate::gcal::CalStatus> {
+    cal_blocking(&cal, |c| c.disconnect()).await
+}
+
+#[tauri::command]
+pub async fn gcal_calendars(cal: CalState<'_>) -> Res<Vec<crate::gcal::CalendarInfo>> {
+    cal_blocking(&cal, |c| c.calendars()).await
+}
+
+#[tauri::command]
+pub async fn gcal_set_visible(cal: CalState<'_>, id: String, visible: bool) -> Res<Vec<crate::gcal::CalendarInfo>> {
+    cal_blocking(&cal, move |c| c.set_visible(id, visible)).await
+}
+
+#[tauri::command]
+pub async fn gcal_events(cal: CalState<'_>, time_min: String, time_max: String) -> Res<crate::gcal::EventsResult> {
+    cal_blocking(&cal, move |c| c.events(time_min, time_max)).await
 }

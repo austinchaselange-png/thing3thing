@@ -27,6 +27,14 @@ const COMMANDS: &[&str] = &[
     "drive_list",
     "drive_download",
     "drive_restore",
+    "open_project_window",
+    "gcal_status",
+    "gcal_set_client",
+    "gcal_connect",
+    "gcal_disconnect",
+    "gcal_calendars",
+    "gcal_set_visible",
+    "gcal_events",
 ];
 
 fn main() {

@@ -299,6 +299,15 @@ export const OpenIcon = (p: P) => (
   </Svg>
 );
 
+export const WindowIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="3" width="12" height="10" rx="1.8" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M2.5 6h11" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="4.4" cy="4.5" r=".6" fill="currentColor" />
+    <circle cx="6.2" cy="4.5" r=".6" fill="currentColor" />
+  </Svg>
+);
+
 export const CancelIcon = (p: P) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" />

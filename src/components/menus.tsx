@@ -26,8 +26,10 @@ import { addDays, relativeLabel, todayYmd, weekdayName } from "../lib/dates";
 import { linkFor } from "../links";
 import { useStore, type MenuItem, type PickerState } from "../store";
 import { snooze, SNOOZE_OPTIONS } from "./ReminderBar";
+import { openProjectWindow, projectWindowId } from "../windowMode";
 import type { Area, ChecklistItem, ListId, Selection, Tag, Task, When } from "../types";
 import {
+  WindowIcon,
   AreaIcon,
   ArrowRightIcon,
   BellIcon,
@@ -121,6 +123,7 @@ export function taskMenu(t: Task): MenuItem[] {
   const items: W[] = [];
   if (isProject) {
     items.push({ label: "Open Project", icon: <OpenIcon />, shortcut: "Enter", onSelect: () => s.select({ kind: "project", id: t.id }) });
+    if (projectWindowId !== t.id) items.push(openInWindowItem(t));
   } else if (!t.trashed) {
     items.push({ label: "Edit", icon: <PencilIcon />, shortcut: "Enter", onSelect: () => (s.selectTask(t.id), s.edit(t.id)) });
   }
@@ -421,12 +424,18 @@ export function bulkMoreMenu(tasks: Task[], anchor?: HTMLElement | null): MenuIt
   ]);
 }
 
+/** "Open in New Window" for a project, like double-clicking it in Things for Mac. */
+function openInWindowItem(p: Task): W {
+  return { label: "Open in New Window", icon: <WindowIcon />, hint: "Double-click a project in the sidebar to do the same", onSelect: () => void openProjectWindow(p) };
+}
+
 /** The ••• beside a project's title, like Things. */
 export function projectMenu(p: Task, anchor: HTMLElement | null): MenuItem[] {
   const s = store();
   const open = p.status === "open";
   const one = [p];
   return guard([
+    ...(projectWindowId !== p.id ? [openInWindowItem(p), SEP] : []),
     open
       ? w({ label: "Complete Project", icon: <CheckIcon />, onSelect: () => void setStatus(p, "completed") })
       : w({ label: "Mark Project as Open", icon: <UndoIcon />, onSelect: () => void setStatus(p, "open") }),

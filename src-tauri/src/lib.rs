@@ -4,6 +4,7 @@ mod commands;
 mod core;
 mod credentials;
 mod drive;
+mod gcal;
 mod settings;
 mod shell;
 mod winshell;
@@ -36,6 +37,7 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             app.manage(PendingLinks(Mutex::new(winshell::links_in(&args))));
             app.manage(std::sync::Arc::new(drive::Drive::default()));
+            app.manage(std::sync::Arc::new(gcal::GCal::new(app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir()))));
             std::thread::spawn(|| {
                 winshell::register_url_scheme();
                 if let Err(e) = winshell::build_jump_list() {
@@ -100,6 +102,7 @@ pub fn run() {
             commands::hide_quick_entry,
             commands::show_main_window,
             commands::take_links,
+            commands::open_project_window,
             commands::export_backup,
             commands::open_url,
             commands::drive_status,
@@ -111,6 +114,13 @@ pub fn run() {
             commands::drive_list,
             commands::drive_download,
             commands::drive_restore,
+            commands::gcal_status,
+            commands::gcal_set_client,
+            commands::gcal_connect,
+            commands::gcal_disconnect,
+            commands::gcal_calendars,
+            commands::gcal_set_visible,
+            commands::gcal_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Things 3");

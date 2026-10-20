@@ -5,6 +5,9 @@ import { App } from "./App";
 import { setBackendForTests } from "./backend";
 import { MockBackend } from "./backend/mock";
 import { mockSnapshot } from "./backend/mockData";
+import { MockCalendarApi, setCalendarApiForTests } from "./calendar/api";
+import { useCalendar } from "./calendar/store";
+import { useLogbookFilter } from "./components/LogbookFilters";
 import { useStore } from "./store";
 import type { Mutation, WriteError } from "./types";
 
@@ -491,6 +494,7 @@ describe("App", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
+      "Open in New Window",
       "Complete Project",
       "When",
       "Add Tags…",
@@ -502,5 +506,58 @@ describe("App", () => {
       "Delete Project",
       "Share…",
     ]);
+  });
+
+  it("toggles the calendar panel with Ctrl+Alt+C and the title-bar button", async () => {
+    setCalendarApiForTests(new MockCalendarApi(false));
+    useCalendar.setState({ open: false, status: null });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    expect(screen.queryByRole("complementary", { name: "Google Calendar" })).toBeNull();
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true, altKey: true });
+    expect(await screen.findByRole("complementary", { name: "Google Calendar" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Hide calendar" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Google Calendar" })).toBeNull());
+    useCalendar.setState({ open: false });
+  });
+
+  it("searches and filters the Logbook", async () => {
+    useLogbookFilter.getState().reset();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: /Logbook/ }));
+    expect(await screen.findByText("Book train to Porto")).toBeInTheDocument();
+    expect(screen.getByText("Send invoice #1042")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Search the Logbook" }), "lisbon");
+    // Matches through the project name.
+    await waitFor(() => expect(screen.queryByText("Send invoice #1042")).toBeNull());
+    expect(inList("Book train to Porto")).toBeInTheDocument();
+    await userEvent.clear(screen.getByRole("textbox", { name: "Search the Logbook" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "When completed" }), "today");
+    await waitFor(() => expect(screen.queryByText("Book train to Porto")).toBeNull());
+    await userEvent.click(screen.getByRole("radio", { name: "Canceled" }));
+    expect(await screen.findByText("Nothing matches these filters.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear Filters" }));
+    expect(await screen.findByText("Book train to Porto")).toBeInTheDocument();
+  });
+
+  it("shows formatted notes and edits them as text", async () => {
+    await backend.setPolicy({ writes: true, destructive: false });
+    const task = await taskByTitle(backend, "Review Q3 budget draft");
+    await backend.apply({ type: "updateTask", id: task.id, baseRev: null, notes: "**Focus** on spend\n- [ ] marketing\n- [x] travel" });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    fireEvent.doubleClick(inList("Review Q3 budget draft"));
+    const rendered = await screen.findByRole("button", { name: /Notes — click to edit/ });
+    expect(within(rendered).getByText("Focus").tagName).toBe("STRONG");
+    const boxes = within(rendered).getAllByRole("checkbox");
+    expect(boxes.map((b) => b.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+    await userEvent.click(boxes[0]);
+    await waitFor(async () => expect((await taskByTitle(backend, "Review Q3 budget draft")).notes).toContain("- [x] marketing"));
+    await userEvent.click(within(screen.getByRole("button", { name: /Notes — click to edit/ })).getByText(/on spend/));
+    const textarea = await screen.findByRole("textbox", { name: "Notes" });
+    expect(textarea).toHaveValue("**Focus** on spend\n- [x] marketing\n- [x] travel");
+    expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
   });
 });

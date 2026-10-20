@@ -76,6 +76,44 @@ pub fn create_quick_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     Ok(window)
 }
 
+/// Opens a project in a window of its own (or focuses it if it's already open).
+/// It runs the same UI, locked to that project; changes reach every window
+/// through the broadcast "state" event.
+pub fn open_project_window(app: &AppHandle, id: &str, title: &str) -> tauri::Result<()> {
+    // Labels may only hold [a-zA-Z0-9-/:_]; Things ids are Base58, but be strict anyway.
+    let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+    if safe.is_empty() {
+        return Ok(());
+    }
+    let label = format!("project-{safe}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let title = if title.trim().is_empty() { "Things 3".to_string() } else { format!("{} – Things 3", title.trim()) };
+    // Cascade from the main window so the new one doesn't hide exactly behind it.
+    let open = app.webview_windows().keys().filter(|l| l.starts_with("project-")).count() as f64;
+    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?window=project&id={safe}").into()))
+        .title(title)
+        .inner_size(760.0, 680.0)
+        .min_inner_size(480.0, 360.0)
+        .decorations(false)
+        .disable_drag_drop_handler()
+        .shadow(true);
+    match app.get_webview_window(MAIN).and_then(|m| m.outer_position().ok().zip(m.scale_factor().ok())) {
+        Some((pos, scale)) => {
+            let step = 36.0 * (open + 1.0);
+            b = b.position(pos.x as f64 / scale + 60.0 + step, pos.y as f64 / scale + 40.0 + step);
+        }
+        None => b = b.center(),
+    }
+    let w = b.build()?;
+    let _ = w.set_focus();
+    Ok(())
+}
+
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.unminimize();

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { bulkDeadline, bulkDuplicate, bulkMove, bulkSchedule, bulkSetStatus, bulkTags, bulkTrash, commonTags, copyText, deletePermanently, pasteAsTodos, tasksAsText } from "./actions";
-import { getBackend } from "./backend";
+import { getBackend, isTauri } from "./backend";
+import { useCalendar } from "./calendar/store";
 import { ContextMenu } from "./components/ContextMenu";
 import { KeyHints } from "./components/KeyHints";
 import { ReminderBar, type DueReminder } from "./components/ReminderBar";
@@ -15,6 +16,10 @@ import { Sidebar } from "./components/Sidebar";
 import { TrafficLights } from "./components/WindowControls";
 import { selectedTasks, useMulti, useStore, type PickerState } from "./store";
 import type { ListId, Task } from "./types";
+import { isProjectWindow, showMainWindow } from "./windowMode";
+
+// The Google Calendar panel is a separate module, loaded only when first shown.
+const CalendarPanel = lazy(() => import("./calendar/CalendarPanel"));
 
 const LIST_KEYS: ListId[] = ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"];
 
@@ -40,6 +45,9 @@ export function App() {
   const picker = useStore((s) => s.picker);
   const sidebarHidden = useStore((s) => s.sidebarHidden);
   const setPicker = useStore((s) => s.openPicker);
+  const projectWindow = isProjectWindow();
+  const calendarOpen = useCalendar((s) => s.open) && !projectWindow;
+  const calendarWidth = useCalendar((s) => s.width);
   const [scrolled, setScrolled] = useState(false);
   // A picker acts on one to-do, or on every selected one.
   const pickerTasks: Task[] = view && picker ? (picker.taskIds ?? (picker.taskId ? [picker.taskId] : [])).map((id) => view.tasks.find((t) => t.id === id)).filter((t): t is Task => !!t) : [];
@@ -55,7 +63,7 @@ export function App() {
 
   // things:/// links (launch, second launch, jump list) and reminders going off.
   useEffect(() => {
-    if (!app) return;
+    if (!app || projectWindow) return;
     const backend = getBackend();
     void backend.takeLinks().then((links) => links.forEach((l) => void handleLink(l)));
     const offLink = backend.onLink((l) => void handleLink(l));
@@ -69,6 +77,14 @@ export function App() {
   }, [!!app]);
 
   useEffect(() => setScrolled(false), [selection]);
+
+  // A project window is titled after its project.
+  const windowTitle = projectWindow && view && selection.kind === "project" ? view.tasks.find((t) => t.id === selection.id)?.title || "Untitled Project" : null;
+  useEffect(() => {
+    if (!windowTitle) return;
+    document.title = `${windowTitle} – Things 3`;
+    if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setTitle(document.title)).catch(() => {});
+  }, [windowTitle]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("mica", !!app?.settings.mica && !!app?.platform.micaAvailable);
@@ -85,11 +101,14 @@ export function App() {
       const targets = selectedTasks();
 
       if (ctrl && key === "f") return (e.preventDefault(), s.openDialog({ kind: "quickFind" }));
+      if (ctrl && key === "," && isProjectWindow()) return (e.preventDefault(), showMainWindow());
       if (ctrl && key === ",") return (e.preventDefault(), s.openDialog({ kind: "settings" }));
+      if (ctrl && e.altKey && key === "c" && !isProjectWindow()) return (e.preventDefault(), useCalendar.getState().toggle());
       if (ctrl && (key === "/" || key === "?")) return (e.preventDefault(), s.openDialog({ kind: "shortcuts" }));
       if (ctrl && key === "n") return (e.preventDefault(), window.dispatchEvent(new Event("tings3:new-task")));
       if (e.key === "F5") return (e.preventDefault(), void getBackend().syncNow());
       if (ctrl && e.altKey && key === "s") return (e.preventDefault(), s.toggleSidebar());
+      if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key) && isProjectWindow()) return (e.preventDefault(), showMainWindow());
       if (ctrl && !e.shiftKey && /^[1-7]$/.test(e.key)) return (e.preventDefault(), s.select({ kind: "list", id: LIST_KEYS[Number(e.key) - 1] }));
       if (isTyping(e) || s.editingId) return;
 
@@ -242,13 +261,18 @@ export function App() {
   const writable = app.canWrite;
 
   return (
-    <div className={`app${sidebarHidden ? " no-sidebar" : ""}`}>
+    <div
+      className={`app${sidebarHidden ? " no-sidebar" : ""}${calendarOpen ? " with-cal" : ""}${projectWindow ? " project-window" : ""}`}
+      style={calendarOpen ? ({ "--cal-w": `${calendarWidth}px` } as React.CSSProperties) : undefined}
+    >
       {!sidebarHidden && <Sidebar />}
       <main className="main" onScrollCapture={(e) => (e.target as HTMLElement).classList?.contains("list-view") && setScrolled((e.target as HTMLElement).scrollTop > 44)}>
         <header className={`topbar${scrolled ? " scrolled" : ""}`} data-tauri-drag-region>
-          <button className="icon-btn sidebar-toggle" title={sidebarHidden ? "Show Sidebar (Ctrl+Alt+S)" : "Hide Sidebar (Ctrl+Alt+S)"} aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"} onClick={() => useStore.getState().toggleSidebar()}>
-            <SidebarIcon />
-          </button>
+          {!projectWindow && (
+            <button className="icon-btn sidebar-toggle" title={sidebarHidden ? "Show Sidebar (Ctrl+Alt+S)" : "Hide Sidebar (Ctrl+Alt+S)"} aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"} onClick={() => useStore.getState().toggleSidebar()}>
+              <SidebarIcon />
+            </button>
+          )}
           <span className="tb-title" data-tauri-drag-region>
             {app.account.mode !== "signedOut" && selectionTitle(selection, view)}
           </span>
@@ -258,7 +282,18 @@ export function App() {
             <span className="grow">Quick Find</span>
             <kbd>Ctrl F</kbd>
           </button>
-          <TrafficLights />
+          {!projectWindow && (
+            <button
+              className={`icon-btn cal-toggle${calendarOpen ? " on" : ""}`}
+              title={calendarOpen ? "Hide Calendar (Ctrl+Alt+C)" : "Show Calendar (Ctrl+Alt+C)"}
+              aria-label={calendarOpen ? "Hide calendar" : "Show calendar"}
+              aria-pressed={calendarOpen}
+              onClick={() => useCalendar.getState().toggle()}
+            >
+              <CalendarIcon size={15} />
+            </button>
+          )}
+          {!calendarOpen && <TrafficLights />}
         </header>
         <ReminderBar items={reminders} onDismiss={(id) => setReminders((list) => list.filter((r) => r.taskId !== id))} />
         <SyncErrorBanner />
@@ -268,6 +303,11 @@ export function App() {
         {app.account.mode !== "signedOut" && <AddBubble disabled={!writable} />}
         {app.account.mode !== "signedOut" && <SelectionBar />}
       </main>
+      {calendarOpen && (
+        <Suspense fallback={<aside className="cal-placeholder" />}>
+          <CalendarPanel controls={<TrafficLights />} onClose={() => useCalendar.getState().setOpen(false)} />
+        </Suspense>
+      )}
 
       {picker?.kind === "when" && pickerTask && (
         <WhenPicker

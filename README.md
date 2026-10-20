@@ -28,6 +28,22 @@ data, so it can stay in sync with Things on your iPhone without a Mac.
   keyboard-navigable (Shift+F10). A blue **+** button in the corner adds
   to-dos (right-click it for projects, areas and headings), and the selected
   to-do shows When / Move / Trash buttons beside it.
+* **Google Calendar side panel:** toggle a read-only calendar beside your
+  lists (title-bar calendar button or **Ctrl+Alt+C**): month grid with event
+  dots that collapses to a week, an agenda that scrolls with it, event details
+  with Meet links, maps and "Open in Google Calendar", calendar picker, search,
+  offline cache, resizable. It has its own Google sign-in with the
+  `calendar.readonly` scope and doesn't touch your to-dos.
+* **Formatted notes:** Markdown in to-do and project notes (headings, bold,
+  italic, strikethrough, lists, `- [ ]` checkboxes you can tick, links, code,
+  quotes), shown formatted and edited as text with a format bar
+  (Ctrl+B / Ctrl+I / Ctrl+L).
+* **Project windows:** double-click a project in the sidebar (or "Open in New
+  Window") to give it a window of its own; edits sync between windows.
+* **Logbook search and filters:** search titles, notes, checklists, projects,
+  areas and tags; filter by period (today, this week, last 30 days, custom
+  range…), completed/canceled, to-dos/projects, and project or area; see a
+  summary and copy what's shown as text.
 * **Editing:** inline to-do editor with notes, checklists, tags, deadlines,
   reminders and When (Today / This Evening / calendar / Someday, plus typed
   dates like "next fri"). Drag to-dos onto sidebar lists, projects or areas.
@@ -71,7 +87,17 @@ Connect your account in **Settings → Account**.
 | Duplicate | Ctrl+D | Context menu | Shift+F10 |
 | Go to list 1–7 | Ctrl+1 … Ctrl+7 | Sync now | F5 |
 | Settings | Ctrl+, | Quick Entry (global) | Ctrl+Alt+Space |
+| Calendar panel | Ctrl+Alt+C | Logbook search | Ctrl+Shift+F |
 | All shortcuts | Ctrl+/ | | |
+
+## Google Calendar panel setup
+
+The panel uses a Google OAuth client of type **Desktop app**. You can reuse
+the one from Google Drive backup: in the same Google Cloud project, enable the
+**Google Calendar API**, then paste the client ID and secret into the panel
+and click **Connect Google Calendar**. (Builds made with
+`TINGS3_GOOGLE_CLIENT_ID` / `TINGS3_GOOGLE_CLIENT_SECRET` skip the pasting.)
+In the browser preview, open `/?sample` to see the panel with sample events.
 
 ## Develop
 

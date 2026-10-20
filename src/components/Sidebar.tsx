@@ -10,6 +10,7 @@ import { AreaIcon, ChevronIcon, DriveIcon, GearIcon, LIST_META, LockIcon, PlusIc
 import { areaMenu, listMenu, tagMenu, taskMenu } from "./menus";
 import { Popover } from "./Pickers";
 import { SidebarWidgets } from "./SidebarWidgets";
+import { openProjectWindow } from "../windowMode";
 
 const LISTS: ListId[][] = [["inbox"], ["today", "upcoming", "anytime", "someday"], ["logbook", "trash"]];
 
@@ -119,6 +120,12 @@ function NavItem({
     <button
       className={`nav-item${active ? " active" : ""}${over ? " drop" : ""}${strong ? " strong" : ""}${line ? ` line-${line}` : ""}`}
       onClick={() => useStore.getState().select(sel)}
+      onDoubleClick={() => {
+        // Like Things for Mac: double-click a project to open it in its own window.
+        if (sel.kind !== "project") return;
+        const p = useStore.getState().view?.tasks.find((t) => t.id === sel.id);
+        if (p) void openProjectWindow(p);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         useStore.getState().openMenu(e, menuFor(sel));
