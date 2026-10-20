@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MockCalendarApi, setCalendarApiForTests } from "./api";
 import CalendarPanel from "./CalendarPanel";
-import { addMonth, byDay, dayKey, eventDays, monthDays, monthKey, plainText, timeOn, weekOf } from "./dates";
-import { loadedEvents, useCalendar } from "./store";
+import { addMonth, byDay, dayKey, eventDays, monthDays, monthKey, plainText, rangeLabel, timeOn, weekOf } from "./dates";
+import { loadedEvents, resetCalendarQueues, useCalendar } from "./store";
 import type { CalEvent } from "./types";
 
 const ev = (p: Partial<CalEvent>): CalEvent => ({
@@ -27,6 +27,7 @@ const ev = (p: Partial<CalEvent>): CalEvent => ({
 });
 
 function resetStore() {
+  resetCalendarQueues();
   const today = dayKey(new Date());
   const m = monthKey(new Date());
   useCalendar.setState({ open: true, status: null, calendars: [], months: {}, loading: {}, error: null, month: m, agendaFrom: m, agendaTo: addMonth(m, 1), selectedDay: today, query: "", expanded: null, collapsed: false });
@@ -52,6 +53,13 @@ describe("calendar dates", () => {
   it("sorts each day with all-day events first", () => {
     const m = byDay([ev({ id: "b", allDay: false, start: new Date(2026, 9, 20, 9).toISOString(), end: new Date(2026, 9, 20, 10).toISOString() }), ev({ id: "a" })]);
     expect(m.get("2026-10-20")!.map((e) => e.id)).toEqual(["a", "b"]);
+  });
+
+  it("labels the last day of an all-day range by calendar day, across a DST change", () => {
+    // US clocks change on Sun, Mar 8 2026; the exclusive end is Mon, Mar 9.
+    const label = rangeLabel(ev({ start: "2026-03-06", end: "2026-03-09" }));
+    const f: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+    expect(label).toBe(`${new Date(2026, 2, 6).toLocaleDateString(undefined, f)} – ${new Date(2026, 2, 8).toLocaleDateString(undefined, f)}`);
   });
 
   it("reads simple HTML descriptions as text", () => {
@@ -99,6 +107,43 @@ describe("calendar panel", () => {
     await userEvent.click(within(menu).getByText("Work"));
     await waitFor(() => expect(screen.queryAllByText("Team standup")).toHaveLength(0));
     expect(useCalendar.getState().calendars.find((c) => c.id === "work")?.visible).toBe(false);
+  });
+
+  it("loads a calendar switched on while a refresh is already running", async () => {
+    // Events requests wait until released, so the toggle lands mid-refresh.
+    class SlowApi extends MockCalendarApi {
+      gate: Promise<void> = Promise.resolve();
+      async events(min: string, max: string) {
+        await this.gate;
+        return super.events(min, max);
+      }
+    }
+    const api = new SlowApi(true);
+    setCalendarApiForTests(api);
+    useCalendar.setState({ status: await api.status() });
+    let release!: () => void;
+    api.gate = new Promise((r) => (release = r));
+    const first = useCalendar.getState().refresh();
+    await waitFor(() => expect(Object.keys(useCalendar.getState().loading).length).toBeGreaterThan(0));
+    // Sports starts hidden; switching it on mid-refresh must not be lost.
+    const toggled = useCalendar.getState().setVisible("sports", true);
+    release();
+    await first;
+    await toggled;
+    await waitFor(() => expect(Object.keys(useCalendar.getState().loading)).toHaveLength(0));
+    const sports = loadedEvents(useCalendar.getState().months).filter((e) => e.calendarId === "sports");
+    expect(sports.length).toBeGreaterThan(0);
+  });
+
+  it("merges a burst of refreshes into at most one more", async () => {
+    const api = new MockCalendarApi(true);
+    let calls = 0;
+    const calendars = api.calendars.bind(api);
+    api.calendars = async () => (calls++, calendars());
+    setCalendarApiForTests(api);
+    useCalendar.setState({ status: await api.status() });
+    await Promise.all([1, 2, 3, 4, 5].map(() => useCalendar.getState().refresh()));
+    expect(calls).toBeLessThanOrEqual(2);
   });
 
   it("navigates months and collapses to a week", async () => {

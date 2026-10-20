@@ -40,6 +40,8 @@ export interface CalEvent {
 export interface EventsResult {
   events: CalEvent[];
   stale: boolean;
+  /** Some calendars couldn't be fetched; their events are the last ones saved. */
+  partial?: boolean;
   fetchedAt: number | null;
 }
 

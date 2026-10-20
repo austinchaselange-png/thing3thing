@@ -49,6 +49,17 @@ pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::
                 core.wake(); // refresh when the user comes back
             }
         }
+        // Minimizing counts as hidden, so background polling slows down just as
+        // it does in the tray; restoring wakes it straight away.
+        WindowEvent::Resized(_) => {
+            let core = handle.state::<Arc<Core>>();
+            let minimized = handle.get_webview_window(MAIN).and_then(|w| w.is_minimized().ok()).unwrap_or(false);
+            if minimized {
+                core.visible.store(false, Ordering::Relaxed);
+            } else if handle.get_webview_window(MAIN).and_then(|w| w.is_visible().ok()).unwrap_or(false) && !core.visible.swap(true, Ordering::Relaxed) {
+                core.wake();
+            }
+        }
         _ => {}
     });
     Ok(window)

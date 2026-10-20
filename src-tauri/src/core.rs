@@ -5,7 +5,7 @@
 //! and a user write can never interleave.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -121,6 +121,9 @@ pub struct Core {
     published: RwLock<Option<AppStateDto>>,
     wake: (Mutex<bool>, Condvar),
     pub visible: AtomicBool,
+    /// Bumped whenever data (not just sync status) is published, so the
+    /// backup loop can skip building a payload when nothing changed.
+    data_rev: AtomicU64,
 }
 
 pub fn mica_available() -> bool {
@@ -180,6 +183,7 @@ impl Core {
             published: RwLock::new(None),
             wake: (Mutex::new(false), Condvar::new()),
             visible: AtomicBool::new(true),
+            data_rev: AtomicU64::new(0),
         });
         core.open_from_settings();
         core
@@ -193,6 +197,10 @@ impl Core {
         if let Err(e) = s.save(&self.settings_path) {
             log::error!("could not save settings: {e}");
         }
+    }
+
+    fn write_settings(&self, s: &Settings) -> Result<(), Value> {
+        s.save(&self.settings_path).map_err(|e| plain_error("storage", format!("Couldn't save your settings: {e}")))
     }
 
     fn cache_path(&self, email: &str) -> PathBuf {
@@ -307,7 +315,13 @@ impl Core {
         }
     }
 
+    /// Changes whenever published data may have changed.
+    pub fn data_rev(&self) -> u64 {
+        self.data_rev.load(Ordering::Acquire)
+    }
+
     fn publish(&self, inner: &Inner) {
+        self.data_rev.fetch_add(1, Ordering::AcqRel);
         let state = self.build_state(inner);
         let _ = self.app.emit("state", &state);
         *self.published.write().unwrap() = Some(state);
@@ -681,19 +695,49 @@ impl Core {
         }
         let history: Vec<Vec<Item>> = serde_json::from_value(v["history"].clone())
             .map_err(|_| plain_error("invalid", "This backup came from a Things Cloud account, so it can't replace lists stored on this PC."))?;
+        let body = serde_json::to_vec(&history).map_err(|e| plain_error("storage", e.to_string()))?;
+        let path = self.data_dir.join("demo-history.json");
+        // Everything that can fail happens before the current lists are touched:
+        // the new history is written and flushed to a staging file, and the
+        // current one is copied aside (that copy must succeed).
+        let staged = self.data_dir.join(format!("demo-history.restoring-{}.json", things_cloud::id::new_id()));
+        crate::settings::write_flushed(&staged, &body).map_err(|e| plain_error("storage", format!("Couldn't prepare the restore: {e}")))?;
+        let keep = if path.exists() {
+            let keep = self.data_dir.join(format!("demo-history.before-restore-{}-{}.json", Local::now().format("%Y%m%d-%H%M%S"), &things_cloud::id::new_id()[..6]));
+            if let Err(e) = std::fs::copy(&path, &keep).and_then(|_| std::fs::File::open(&keep)?.sync_all()) {
+                let _ = std::fs::remove_file(&staged);
+                return Err(plain_error("storage", format!("Couldn't keep a copy of your current lists, so nothing was restored: {e}")));
+            }
+            Some(keep)
+        } else {
+            None
+        };
         let mut inner = self.lock_inner();
         inner.engine = None;
         inner.fake = None;
-        let path = self.data_dir.join("demo-history.json");
-        if path.exists() {
-            let keep = self.data_dir.join(format!("demo-history.before-restore-{}.json", Local::now().format("%Y%m%d-%H%M%S")));
-            let _ = std::fs::copy(&path, keep);
+        if let Err(e) = std::fs::rename(&staged, &path) {
+            let _ = std::fs::remove_file(&staged);
+            let reopened = self.open_demo(&mut inner);
+            self.publish(&inner);
+            drop(inner);
+            log::error!("restore: could not replace history ({e}); reopened current lists: {}", reopened.is_ok());
+            return Err(plain_error("storage", format!("Couldn't restore the backup: {e}. Your current lists are unchanged.")));
         }
-        std::fs::write(&path, serde_json::to_vec(&history).unwrap_or_default()).map_err(|e| plain_error("storage", e.to_string()))?;
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(self.data_dir.join(format!("demo-cache.sqlite{ext}")));
         }
-        self.open_demo(&mut inner).map_err(|e| plain_error("storage", e.to_string()))?;
+        if let Err(e) = self.open_demo(&mut inner) {
+            // The restored history wouldn't open: put the previous one back.
+            if let Some(keep) = &keep {
+                let _ = std::fs::copy(keep, &path);
+                for ext in ["", "-wal", "-shm"] {
+                    let _ = std::fs::remove_file(self.data_dir.join(format!("demo-cache.sqlite{ext}")));
+                }
+                let _ = self.open_demo(&mut inner);
+            }
+            self.publish(&inner);
+            return Err(plain_error("storage", format!("That backup couldn't be opened ({e}); your previous lists were put back.")));
+        }
         self.publish(&inner);
         drop(inner);
         self.wake();
@@ -749,8 +793,18 @@ impl Core {
         if next.launch_at_login != previous.launch_at_login {
             crate::shell::set_autostart(&self.app, next.launch_at_login).map_err(|e| plain_error("storage", e))?;
         }
+        // Saved to disk before anything reports success.
+        if let Err(e) = self.write_settings(&next) {
+            // Undo the side effects applied above so the UI, the OS and the file agree.
+            if next.quick_entry_shortcut != previous.quick_entry_shortcut {
+                let _ = crate::shell::register_shortcut(&self.app, &next.quick_entry_shortcut, &previous.quick_entry_shortcut);
+            }
+            if next.launch_at_login != previous.launch_at_login {
+                let _ = crate::shell::set_autostart(&self.app, previous.launch_at_login);
+            }
+            return Err(e);
+        }
         *self.settings.lock().unwrap() = next.clone();
-        self.save_settings(&next);
         let inner = self.lock_inner();
         self.publish(&inner);
         Ok(())

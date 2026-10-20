@@ -68,15 +68,27 @@ pub fn run() {
                 let handle = handle.clone();
                 std::thread::Builder::new().name("tings3-drive".into()).spawn(move || {
                     let mut pause_until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    // Data revision of the last payload Drive accepted (or found unchanged).
+                    let mut backed_up_rev: Option<u64> = None;
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(20));
                         if std::time::Instant::now() < pause_until || !drive.auto_ready() {
                             continue;
                         }
+                        // Nothing published since the last backup: skip serializing and hashing it all.
+                        let rev = core.data_rev();
+                        if backed_up_rev == Some(rev) && !drive.needs_upload() {
+                            continue;
+                        }
                         let Some(body) = core.backup_payload() else { continue };
                         match drive.back_up(&body, false) {
-                            Ok(false) => continue,
-                            Ok(true) => {}
+                            Ok(false) => {
+                                backed_up_rev = Some(rev); // same bytes as the last upload
+                                continue;
+                            }
+                            Ok(true) => backed_up_rev = Some(rev),
+                            // A manual backup is running; check again next time.
+                            Err(e) if e["code"] == "busy" => continue,
                             // Offline or Google unhappy: try again in 5 minutes.
                             Err(_) => pause_until = std::time::Instant::now() + std::time::Duration::from_secs(300),
                         }

@@ -15,6 +15,28 @@ interface MonthData {
   events: CalEvent[];
   at: number;
   stale: boolean;
+  partial?: boolean;
+}
+
+/** Reopening the panel after this long refreshes it. */
+const REOPEN_REFRESH_MS = 60_000;
+
+// Bookkeeping that doesn't need to re-render anything.
+/** Months asked to reload while a load was already running: reloaded when it finishes. */
+const reloadAfter = new Set<string>();
+let refreshing: Promise<void> | null = null;
+let refreshAgain = false;
+let lastRefreshAt = 0;
+/** Only the newest show/hide answer from the backend is applied. */
+let visibilitySeq = 0;
+
+/** Clears the module-level bookkeeping (tests). */
+export function resetCalendarQueues() {
+  reloadAfter.clear();
+  refreshing = null;
+  refreshAgain = false;
+  lastRefreshAt = 0;
+  visibilitySeq = 0;
 }
 
 interface CalendarStore {
@@ -85,6 +107,25 @@ const clampWidth = (w: number) => Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WI
 export const useCalendar = create<CalendarStore>((set, get) => {
   const today = dayKey(new Date());
   const thisMonth = monthKey(new Date());
+
+  /** One refresh: the calendar list (names, colours, new calendars), then every month in view. */
+  async function refreshOnce() {
+    const api = calendarApi();
+    try {
+      const calendars = await api.calendars();
+      set({ calendars, error: null });
+    } catch (e) {
+      const err = asError(e);
+      set({ error: err });
+      if (err.code === "noAccount") return void api.status().then((s) => get().setStatus(s), () => {});
+    }
+    const { month, agendaFrom, agendaTo } = get();
+    const keys = new Set([addMonth(month, -1), month, addMonth(month, 1)]);
+    for (let k = agendaFrom; k <= agendaTo; k = addMonth(k, 1)) keys.add(k);
+    await Promise.all([...keys].map((k) => get().loadMonth(k, true)));
+    void api.status().then((status) => set({ status }), () => {});
+  }
+
   return {
     open: readPref("tings3.calendar.open") === "1",
     width: clampWidth(Number(readPref("tings3.calendar.width")) || DEFAULT_WIDTH),
@@ -109,7 +150,10 @@ export const useCalendar = create<CalendarStore>((set, get) => {
     setOpen(open) {
       writePref("tings3.calendar.open", open ? "1" : "0");
       set({ open });
-      if (open && !get().status) void get().init();
+      if (!open) return;
+      if (!get().status) void get().init();
+      // Coming back to the panel after a while: show what's current.
+      else if (get().status?.connected && Date.now() - lastRefreshAt > REOPEN_REFRESH_MS) void get().refresh();
     },
 
     setWidth(w) {
@@ -138,33 +182,42 @@ export const useCalendar = create<CalendarStore>((set, get) => {
       if (!status.connected) set({ calendars: [], months: {} });
     },
 
-    async refresh() {
-      const api = calendarApi();
-      try {
-        const calendars = await api.calendars();
-        set({ calendars, error: null });
-      } catch (e) {
-        const err = asError(e);
-        set({ error: err });
-        if (err.code === "noAccount") return void api.status().then((s) => get().setStatus(s), () => {});
+    // Refreshes asked for while one is running are merged into a single
+    // follow-up run, so a burst of changes (e.g. "Show all calendars") costs
+    // at most two refreshes and the last one always sees the latest settings.
+    refresh() {
+      if (refreshing) {
+        refreshAgain = true;
+        return refreshing;
       }
-      const { month, agendaFrom, agendaTo } = get();
-      const keys = new Set([addMonth(month, -1), month, addMonth(month, 1)]);
-      for (let k = agendaFrom; k <= agendaTo; k = addMonth(k, 1)) keys.add(k);
-      await Promise.all([...keys].map((k) => get().loadMonth(k, true)));
-      void api.status().then((status) => set({ status }), () => {});
+      const run = async () => {
+        do {
+          refreshAgain = false;
+          lastRefreshAt = Date.now();
+          await refreshOnce();
+        } while (refreshAgain);
+      };
+      refreshing = run().finally(() => {
+        refreshing = null;
+      });
+      return refreshing;
     },
 
     async loadMonth(key, force = false) {
       const s = get();
-      if (!s.status?.connected || s.loading[key]) return;
+      if (!s.status?.connected) return;
+      if (s.loading[key]) {
+        // Already loading, maybe with calendars that were just switched on or off: load again after.
+        if (force) reloadAfter.add(key);
+        return;
+      }
       const have = s.months[key];
       if (have && !force && Date.now() - have.at < FRESH_MS) return;
       set((st) => ({ loading: { ...st.loading, [key]: true } }));
       const { start, end } = monthRange(key);
       try {
         const r = await calendarApi().events(start.toISOString(), end.toISOString());
-        set((st) => ({ months: { ...st.months, [key]: { events: r.events, at: Date.now(), stale: r.stale } }, error: r.stale ? st.error : null }));
+        set((st) => ({ months: { ...st.months, [key]: { events: r.events, at: Date.now(), stale: r.stale, partial: !!r.partial } }, error: r.stale || r.partial ? st.error : null }));
       } catch (e) {
         const err = asError(e);
         set({ error: err });
@@ -175,6 +228,7 @@ export const useCalendar = create<CalendarStore>((set, get) => {
           delete loading[key];
           return { loading };
         });
+        if (reloadAfter.delete(key)) void get().loadMonth(key, true);
       }
     },
 
@@ -219,13 +273,16 @@ export const useCalendar = create<CalendarStore>((set, get) => {
     },
 
     async setVisible(id, visible) {
+      // Shown or hidden at once; hiding needs nothing from Google.
       set((s) => ({ calendars: s.calendars.map((c) => (c.id === id ? { ...c, visible } : c)) }));
+      const seq = ++visibilitySeq;
       try {
         const calendars = await calendarApi().setVisible(id, visible);
-        set({ calendars });
-        await get().refresh();
+        // An older answer arriving after a newer toggle mustn't undo it.
+        if (seq === visibilitySeq) set({ calendars });
+        if (visible) await get().refresh();
       } catch (e) {
-        set({ error: asError(e) });
+        set((s) => ({ error: asError(e), calendars: s.calendars.map((c) => (c.id === id ? { ...c, visible: !visible } : c)) }));
       }
     },
 

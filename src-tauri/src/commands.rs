@@ -31,7 +31,11 @@ pub fn sync_now(core: State<'_, Arc<Core>>) {
 }
 
 #[tauri::command]
-pub async fn apply_mutation(core: State<'_, Arc<Core>>, mutation: Mutation, force: bool) -> Res<WriteReport> {
+pub async fn apply_mutation(window: tauri::WebviewWindow, core: State<'_, Arc<Core>>, mutation: Mutation, force: bool) -> Res<WriteReport> {
+    // Quick Entry only ever creates to-dos; it may not edit, move or delete anything.
+    if window.label() == shell::QUICK && !matches!(mutation, Mutation::CreateTask { .. }) {
+        return Err(json!({ "code": "invalid", "message": "Quick Entry can only create new to-dos." }));
+    }
     blocking(&core, move |c| c.apply(mutation, force)).await
 }
 

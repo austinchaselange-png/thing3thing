@@ -125,7 +125,8 @@ export default function CalendarPanel({ controls, onClose }: { controls?: ReactN
     if (!s.status) void s.init();
   }, []);
 
-  // Keep it current: every 5 minutes, and when the window comes back after a while.
+  // Keep it current: every 5 minutes while the window can be seen, and as soon
+  // as it comes back (focus or un-minimize) after a couple of minutes away.
   useEffect(() => {
     if (!status?.connected) return;
     let last = Date.now();
@@ -133,12 +134,14 @@ export default function CalendarPanel({ controls, onClose }: { controls?: ReactN
       last = Date.now();
       void useCalendar.getState().refresh();
     };
-    const timer = window.setInterval(tick, 5 * 60_000);
-    const onFocus = () => Date.now() - last > 2 * 60_000 && tick();
-    window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(() => !document.hidden && tick(), 5 * 60_000);
+    const onBack = () => !document.hidden && Date.now() - last > 2 * 60_000 && tick();
+    window.addEventListener("focus", onBack);
+    document.addEventListener("visibilitychange", onBack);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", onBack);
+      document.removeEventListener("visibilitychange", onBack);
     };
   }, [status?.connected]);
 
@@ -335,6 +338,7 @@ function Connected({ controls, onClose }: { controls?: ReactNode; onClose: () =>
   const visibleIds = useMemo(() => new Set(calendars.filter((c) => c.visible).map((c) => c.id)), [calendars]);
   const events = useMemo(() => loadedEvents(months).filter((e) => !calendars.length || visibleIds.has(e.calendarId)), [months, calendars.length, visibleIds]);
   const stale = Object.values(months).some((m) => m.stale);
+  const partial = !stale && Object.values(months).some((m) => m.partial);
   const days = useMemo(() => byDay(events), [events]);
 
   useEffect(() => {
@@ -392,9 +396,13 @@ function Connected({ controls, onClose }: { controls?: ReactNode; onClose: () =>
         </div>
       )}
       {!query && <MonthGrid days={days} />}
-      {(stale || (error && error.code !== "noAccount")) && (
-        <div className={`cal-banner${stale ? "" : " error"}`} role="status">
-          {stale ? `Offline — showing events saved ${ago(status.lastSyncAt)}.` : error!.message}
+      {(stale || partial || (error && error.code !== "noAccount")) && (
+        <div className={`cal-banner${stale || partial ? "" : " error"}`} role="status">
+          {stale
+            ? `Offline — showing events saved ${ago(status.lastSyncAt)}.`
+            : partial
+              ? `Some calendars couldn't be updated — showing their last saved events.${status.lastError ? ` ${status.lastError.replace(/^Some calendars couldn't be updated: /, "")}` : ""}`
+              : error!.message}
         </div>
       )}
       <Agenda days={days} events={events} calendars={calendars} />

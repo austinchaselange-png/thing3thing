@@ -109,7 +109,8 @@ export function rangeLabel(e: CalEvent): string {
   const { start, end } = eventBounds(e);
   const dateFmt: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
   if (e.allDay) {
-    const lastDay = new Date(end.getTime() - 86_400_000);
+    // The end date is exclusive: step back one calendar day (not 24 hours, which is wrong across DST changes).
+    const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
     if (dayKey(lastDay) <= dayKey(start)) return `${start.toLocaleDateString(undefined, dateFmt)} · All day`;
     return `${start.toLocaleDateString(undefined, dateFmt)} – ${lastDay.toLocaleDateString(undefined, dateFmt)}`;
   }

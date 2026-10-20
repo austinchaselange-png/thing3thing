@@ -10,7 +10,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -93,6 +93,8 @@ pub struct Drive {
     stored: Mutex<Option<Stored>>,
     access: Mutex<Option<Access>>,
     busy: Mutex<bool>,
+    /// Held for the whole of an upload, so two backups never interleave.
+    backup_lock: Mutex<()>,
     last_error: Mutex<Option<String>>,
     /// Hash of the last uploaded backup, so unchanged data isn't re-sent.
     last_hash: Mutex<Option<String>>,
@@ -104,8 +106,19 @@ fn err(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into() })
 }
 
+/// One shared client (cheap to clone), so connections to Google are reused.
 pub(crate) fn http() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")).clone()
+}
+
+/// Revokes a Google token. Ok(()) only when Google confirms it (or says it was already invalid).
+pub(crate) fn revoke(token: &str) -> Result<(), String> {
+    match http().post("https://oauth2.googleapis.com/revoke").form(&[("token", token)]).send() {
+        Ok(r) if r.status().is_success() || r.status().as_u16() == 400 => Ok(()),
+        Ok(r) => Err(format!("Google answered {}", r.status())),
+        Err(e) => Err(format!("couldn't reach Google: {e}")),
+    }
 }
 
 pub(crate) fn b64url(bytes: &[u8]) -> String {
@@ -283,9 +296,7 @@ impl Drive {
     }
 
     pub fn disconnect(&self) -> Res<DriveStatus> {
-        if let Some(token) = self.load().refresh_token {
-            let _ = http().post("https://oauth2.googleapis.com/revoke").form(&[("token", token.as_str())]).send();
-        }
+        let revoked = self.load().refresh_token.map(|t| revoke(&t)).unwrap_or(Ok(()));
         self.update(|s| {
             s.refresh_token = None;
             s.email = None;
@@ -295,7 +306,11 @@ impl Drive {
             s.last_backup_at = None;
         })?;
         *self.access.lock().unwrap() = None;
-        *self.last_error.lock().unwrap() = None;
+        *self.last_hash.lock().unwrap() = None;
+        // Signed out on this PC either way; say so if Google didn't confirm the revoke.
+        *self.last_error.lock().unwrap() = revoked.err().map(|e| {
+            format!("Disconnected on this PC, but Google didn't confirm that access was removed ({e}). You can remove Things 3 at myaccount.google.com/permissions.")
+        });
         Ok(self.status())
     }
 
@@ -399,28 +414,35 @@ impl Drive {
         Self::check(r).map(|_| ())
     }
 
+    /// Every file in the backup folder, newest first (all pages, so pruning sees them all).
     pub fn list(&self) -> Res<Vec<BackupFile>> {
         let folder = self.folder()?;
         let q = format!("'{folder}' in parents and trashed = false");
-        let v = self.get_json(&format!(
-            "https://www.googleapis.com/drive/v3/files?q={}&orderBy={}&pageSize=100&fields=files(id,name,modifiedTime,size)",
-            urlencode(&q),
-            urlencode("modifiedTime desc")
-        ))?;
-        Ok(v["files"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .map(|f| BackupFile {
-                        id: f["id"].as_str().unwrap_or_default().to_string(),
-                        name: f["name"].as_str().unwrap_or_default().to_string(),
-                        modified_time: f["modifiedTime"].as_str().map(str::to_string),
-                        size: f["size"].as_str().and_then(|s| s.parse().ok()),
-                        latest: f["name"] == LATEST,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default())
+        let mut out = Vec::new();
+        let mut page: Option<String> = None;
+        for _ in 0..50 {
+            let mut url = format!(
+                "https://www.googleapis.com/drive/v3/files?q={}&orderBy={}&pageSize=1000&fields=nextPageToken,files(id,name,modifiedTime,size)",
+                urlencode(&q),
+                urlencode("modifiedTime desc")
+            );
+            if let Some(p) = &page {
+                url.push_str(&format!("&pageToken={}", urlencode(p)));
+            }
+            let v = self.get_json(&url)?;
+            out.extend(v["files"].as_array().into_iter().flatten().map(|f| BackupFile {
+                id: f["id"].as_str().unwrap_or_default().to_string(),
+                name: f["name"].as_str().unwrap_or_default().to_string(),
+                modified_time: f["modifiedTime"].as_str().map(str::to_string),
+                size: f["size"].as_str().and_then(|s| s.parse().ok()),
+                latest: f["name"] == LATEST,
+            }));
+            match v["nextPageToken"].as_str() {
+                Some(next) if Some(next) != page.as_deref() => page = Some(next.to_string()),
+                _ => break,
+            }
+        }
+        Ok(out)
     }
 
     pub fn download(&self, id: &str) -> Res<Vec<u8>> {
@@ -450,6 +472,17 @@ impl Drive {
         let hash = b64url(&Sha256::digest(body));
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let daily = format!("{DAILY_PREFIX}{today}.json");
+        // One upload at a time. An automatic backup skips its turn rather than
+        // queue an older copy; the next check (20 s later) uploads the newest data.
+        let _upload = if force {
+            self.backup_lock.lock().unwrap_or_else(|p| p.into_inner())
+        } else {
+            match self.backup_lock.try_lock() {
+                Ok(g) => g,
+                Err(std::sync::TryLockError::WouldBlock) => return Err(err("busy", "A backup is already running.")),
+                Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            }
+        };
         if !force && self.last_hash.lock().unwrap().as_deref() == Some(hash.as_str()) {
             return Ok(false);
         }
@@ -475,8 +508,9 @@ impl Drive {
             // Keep the newest KEEP_DAYS daily snapshots.
             let mut dailies: Vec<&BackupFile> = files.iter().filter(|f| !f.latest && f.name.starts_with(DAILY_PREFIX) && f.name != daily).collect();
             dailies.sort_by(|a, b| b.name.cmp(&a.name));
-            for old in dailies.into_iter().skip(KEEP_DAYS.saturating_sub(1)) {
-                let _ = self.delete(&old.id);
+            let failed = dailies.into_iter().skip(KEEP_DAYS.saturating_sub(1)).filter(|old| self.delete(&old.id).is_err()).count();
+            if failed > 0 {
+                log::warn!("drive: {failed} old daily backup(s) could not be removed");
             }
             Ok::<_, Value>(())
         })();
@@ -493,6 +527,12 @@ impl Drive {
                 Err(e)
             }
         }
+    }
+
+    /// True until a backup has succeeded since the app started or the account
+    /// changed, so the caller uploads even when its data hasn't changed.
+    pub fn needs_upload(&self) -> bool {
+        self.last_hash.lock().unwrap().is_none()
     }
 
     /// Ready for an automatic backup: connected and switched on.
@@ -529,16 +569,22 @@ pub(crate) fn wait_for_code(listener: &TcpListener, state: &str, product: &str) 
                 let path = req.split_whitespace().nth(1).unwrap_or("");
                 let query = path.split_once('?').map(|(_, q)| q).unwrap_or("");
                 let param = |k: &str| query.split('&').find_map(|kv| kv.split_once('=').filter(|(a, _)| *a == k).map(|(_, v)| percent_decode(v)));
+                // Only the browser we sent to Google carries our `state`. Anything
+                // else (another program, a favicon request) is ignored, errors included.
+                if param("state").as_deref() != Some(state) {
+                    respond(&mut stream, "Things 3", "Waiting for Google…");
+                    continue;
+                }
                 if let Some(e) = param("error") {
                     respond(&mut stream, &format!("{product} wasn't connected"), "You can close this tab and try again in Things 3.");
                     return Err(err("rejected", if e == "access_denied" { format!("You declined access to {product}.") } else { format!("Google returned: {e}") }));
                 }
-                match (param("code"), param("state")) {
-                    (Some(code), Some(s)) if s == state => {
+                match param("code") {
+                    Some(code) => {
                         respond(&mut stream, &format!("{product} is connected"), "You can close this tab and go back to Things 3.");
                         return Ok(code);
                     }
-                    _ => respond(&mut stream, "Things 3", "Waiting for Google…"), // e.g. a favicon request
+                    None => respond(&mut stream, "Things 3", "Waiting for Google…"),
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(150)),
@@ -555,7 +601,8 @@ fn percent_decode(s: &str) -> String {
     while i < bytes.len() {
         match bytes[i] {
             b'%' if i + 2 < bytes.len() => {
-                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                // Read the two hex digits as bytes: slicing the str could split a multi-byte character and panic.
+                if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
                     out.push(v);
                     i += 3;
                     continue;
@@ -580,6 +627,7 @@ mod tests {
         assert_eq!(percent_decode("4%2F0Ab%2Bx"), "4/0Ab+x");
         assert_eq!(percent_decode("a+b"), "a b");
         assert_eq!(percent_decode("100%"), "100%");
+        assert_eq!(percent_decode("%aé%41"), "%aéA", "a % followed by half a character must not panic");
     }
 
     #[test]
