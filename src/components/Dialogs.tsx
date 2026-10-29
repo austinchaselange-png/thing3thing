@@ -381,10 +381,12 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
   const policy = useStore((s) => s.app!.policy);
   const [ack, setAck] = useState(false);
   const [phrase, setPhrase] = useState("");
-  const ok = ack && (!destructive || phrase === "DELETE");
+  const ok = ack && (!destructive || phrase.trim().toUpperCase() === "DELETE");
   const enable = async () => {
-    const r = await run(() => getBackend().setPolicy(destructive ? { writes: true, destructive: true } : { writes: true, destructive: policy.destructive }), destructive ? "Permanent deletions enabled." : "Writes enabled.");
-    if (r !== null) close();
+    if (!ok) return;
+    // Close straight away; a failure still shows as an error toast.
+    close();
+    await run(() => getBackend().setPolicy(destructive ? { writes: true, destructive: true } : { writes: true, destructive: policy.destructive }), destructive ? "Permanent deletions enabled." : "Writes enabled.");
   };
   return (
     <Modal
@@ -424,7 +426,7 @@ export function WriteOptInDialog({ destructive }: { destructive?: boolean }) {
       {destructive && (
         <label className="form">
           Type DELETE to confirm
-          <input value={phrase} onChange={(e) => setPhrase(e.target.value)} aria-label="Confirmation phrase" />
+          <input autoFocus value={phrase} onChange={(e) => setPhrase(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void enable()} aria-label="Confirmation phrase" />
         </label>
       )}
     </Modal>
@@ -474,7 +476,12 @@ export function ConflictDialog({ mutation, fields }: { mutation: Parameters<Retu
 export function ConfirmDialog({ title, body, mutation, phrase }: { title: string; body: string; mutation: Parameters<ReturnType<typeof useStore.getState>["apply"]>[0]; phrase: boolean }) {
   const apply = useStore((s) => s.apply);
   const [text, setText] = useState("");
-  const ok = !phrase || text === "DELETE";
+  const ok = !phrase || text.trim().toUpperCase() === "DELETE";
+  const confirm = () => {
+    if (!ok) return;
+    close();
+    void apply("confirm" in mutation ? { ...mutation, confirm: "DELETE" } : mutation);
+  };
   return (
     <Modal
       title={title}
@@ -487,10 +494,7 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
           <button
             className="btn danger"
             disabled={!ok}
-            onClick={() => {
-              close();
-              void apply("confirm" in mutation ? { ...mutation, confirm: phrase ? text : "DELETE" } : mutation);
-            }}
+            onClick={confirm}
           >
             Delete permanently
           </button>
@@ -501,7 +505,7 @@ export function ConfirmDialog({ title, body, mutation, phrase }: { title: string
       {phrase && (
         <label className="form">
           Type DELETE to confirm
-          <input autoFocus value={text} onChange={(e) => setText(e.target.value)} aria-label="Confirmation phrase" />
+          <input autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirm()} aria-label="Confirmation phrase" />
         </label>
       )}
     </Modal>

@@ -1057,14 +1057,13 @@ button.chip.active:hover {
 .task-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap; /* tags and deadline drop to the next line instead of cutting the title off */
+  gap: 3px 6px;
   min-height: 20px;
 }
 
 .task-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 
