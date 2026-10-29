@@ -29,6 +29,17 @@ if (isTauri()) {
       const t = e.target as HTMLElement;
       if (!(t.tagName === "INPUT" || t.tagName === "TEXTAREA")) e.preventDefault();
     });
+    // Browser shortcuts that make no sense in a desktop app (reload, print,
+    // view source, find bar, zoom reset). App shortcuts still run.
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        const k = e.key.toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && ["r", "p", "u", "g", "j", "h"].includes(k)) e.preventDefault();
+        if (e.key === "F3" || e.key === "F7" || (e.key === "F5" && !e.ctrlKey)) e.preventDefault();
+      },
+      true,
+    );
   }
 }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gcal-calendars"
+description = "Enables the gcal_calendars command without any pre-configured scope."
+commands.allow = ["gcal_calendars"]
+
+[[permission]]
+identifier = "deny-gcal-calendars"
+description = "Denies the gcal_calendars command without any pre-configured scope."
+commands.deny = ["gcal_calendars"]

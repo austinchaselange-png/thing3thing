@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gcal-events"
+description = "Enables the gcal_events command without any pre-configured scope."
+commands.allow = ["gcal_events"]
+
+[[permission]]
+identifier = "deny-gcal-events"
+description = "Denies the gcal_events command without any pre-configured scope."
+commands.deny = ["gcal_events"]

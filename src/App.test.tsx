@@ -1,17 +1,42 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { setBackendForTests } from "./backend";
 import { MockBackend } from "./backend/mock";
 import { mockSnapshot } from "./backend/mockData";
+import { MockCalendarApi, setCalendarApiForTests } from "./calendar/api";
+import { useCalendar } from "./calendar/store";
+import { useLogbookFilter } from "./components/LogbookFilters";
 import { useStore } from "./store";
 import type { Mutation, WriteError } from "./types";
 
 function reset(backend: MockBackend) {
   setBackendForTests(backend);
-  useStore.setState({ app: null, view: null, pending: [], dialog: null, toasts: [], selection: { kind: "list", id: "today" }, selectedId: null, editingId: null, recentlyCompleted: [] });
+  useStore.setState({
+    app: null,
+    view: null,
+    pending: [],
+    dialog: null,
+    toasts: [],
+    menu: null,
+    picker: null,
+    selection: { kind: "list", id: "today" },
+    selectedId: null,
+    selectedIds: [],
+    anchorId: null,
+    selectMode: false,
+    editingId: null,
+    recentlyCompleted: [],
+  });
 }
+
+/** A row's title in the list (the sidebar widgets can show the same text). */
+const inList = (title: string) => within(screen.getByRole("listbox", { name: "To-dos" })).getByText(title);
+const ctrlClick = (title: string) => fireEvent.click(inList(title), { ctrlKey: true, detail: 1 });
+const shiftClick = (title: string) => fireEvent.click(inList(title), { shiftKey: true, detail: 1 });
+
+const taskByTitle = async (backend: MockBackend, title: string) => (await backend.getState()).snapshot.tasks.find((t) => t.title === title)!;
 
 describe("App", () => {
   let backend: MockBackend;
@@ -51,7 +76,7 @@ describe("App", () => {
     await act(() => useStore.getState().apply({ type: "createArea", title: "X" }));
     expect(await screen.findByText(/read-only/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Enable writes…" }));
-    const dialog = await screen.findByRole("dialog", { name: /Allow Tings 3 to change/ });
+    const dialog = await screen.findByRole("dialog", { name: /Allow Things 3 to change/ });
     const enable = within(dialog).getByRole("button", { name: "Enable writes" });
     expect(enable).toBeDisabled();
     await userEvent.click(within(dialog).getByRole("checkbox"));
@@ -87,14 +112,458 @@ describe("App", () => {
     await waitFor(() => expect(useStore.getState().view!.tasks.some((t) => t.title === "Buy stamps" && t.tagIds.includes("tagErrand") && t.startDate)).toBe(true));
   });
 
-  it("goes read-only with an explanation when the account uses a newer data format", async () => {
+  it("goes read-only with an explanation when Things Cloud sends data it doesn't understand", async () => {
     const b = backend as unknown as { emit(p: object): void };
-    b.emit({ account: { mode: "cloud", email: "me@example.com" }, canWrite: false, format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }] } });
+    b.emit({
+      account: { mode: "cloud", email: "me@example.com" },
+      canWrite: false,
+      format: { newerKinds: [{ kind: "Task7", count: 12, unfamiliarFields: ["zz"] }], problems: ["Task7: zz", "Things Cloud schema 302 (Things 3 knows 301)"], serverSchema: 302, writesSupported: false },
+    });
     render(<App />);
-    expect(await screen.findByText(/newer Things data format \(Task7\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/doesn't fully understand yet, so changes are off/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Complete “Call the dentist/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Details…" }));
-    expect(await screen.findByText(/Task7 \(12\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Task7: zz/)).toBeInTheDocument();
+    expect(await screen.findByText(/Syncing from your iPhone keeps working/)).toBeInTheDocument();
+    expect(screen.getByText("Task7: zz")).toBeInTheDocument();
+    expect(screen.getByText(/schema 302/)).toBeInTheDocument();
+  });
+
+  it("shows a sync failure in the window with a way to retry", async () => {
+    const b = backend as unknown as { emit(p: object): void };
+    b.emit({ account: { mode: "cloud", email: "me@example.com" }, sync: { phase: "error", lastSyncedAt: null, lastError: "Things Cloud is unreachable", nextAttemptAt: null } });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sync stopped: Things Cloud is unreachable");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("right-click menu moves a to-do to the Trash, with Undo", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    fireEvent.contextMenu(screen.getByText("Water the plants"));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Move to Trash/ }));
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Water the plants")).toBeInTheDocument();
+  });
+
+  it("menus work from the keyboard and disable writes when read-only", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Complete/ })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    await act(() => backend.setPolicy({ writes: false, destructive: false }));
+    fireEvent.contextMenu(screen.getByText("Call the dentist to reschedule"));
+    const ro = await screen.findByRole("menu");
+    expect(within(ro).getByRole("menuitem", { name: /Move to Trash/ })).toHaveAttribute("aria-disabled", "true");
+    expect(within(ro).getByRole("menuitem", { name: /Copy Title/ })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("button", { name: "New To-Do" })).toBeDisabled();
+  });
+
+  it("the blue button starts a new to-do and shows quick actions on the selected row", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    expect(screen.queryByRole("toolbar", { name: "Actions" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "New To-Do" }));
+    expect(await screen.findByRole("textbox", { name: "New to-do title" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByText("Call the dentist to reschedule"));
+    expect(screen.getByRole("button", { name: "When" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move to Trash" })).toBeInTheDocument();
+  });
+
+  it("Ctrl-click and Shift-click select several to-dos and complete them together", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Pick up dry cleaning"));
+    ctrlClick("Go for a run");
+    const bar = await screen.findByRole("toolbar", { name: "Selected to-dos" });
+    expect(bar).toHaveTextContent("2 selected");
+    // The + button gives way to the selection bar, like Things.
+    expect(screen.queryByRole("button", { name: "New To-Do" })).not.toBeInTheDocument();
+
+    shiftClick("Call the dentist to reschedule");
+    expect(bar).toHaveTextContent("2 selected"); // range from the last Ctrl-click: run → dentist
+
+    await userEvent.click(within(bar).getByRole("button", { name: "More" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent?.replace(/Ctrl.*$/, ""))).toEqual(["Mark as Completed", "Set Tags…", "Set Deadline…", "Duplicate", "Share…"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Mark as Completed/ }));
+    await waitFor(async () => {
+      expect((await taskByTitle(backend, "Go for a run")).status).toBe("completed");
+      expect((await taskByTitle(backend, "Call the dentist to reschedule")).status).toBe("completed");
+    });
+    expect((await taskByTitle(backend, "Pick up dry cleaning")).status).toBe("open");
+  });
+
+  it("Set Tags on a selection adds the tag and keeps each to-do's other tags", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Review Q3 budget draft"));
+    ctrlClick("Water the plants");
+    fireEvent.contextMenu(inList("Water the plants"));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("2 Selected")).toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Set Tags/ }));
+    const picker = await screen.findByRole("dialog");
+    await userEvent.click(within(picker).getByRole("menuitemcheckbox", { name: /Errand/ }));
+    await waitFor(async () => {
+      expect((await taskByTitle(backend, "Review Q3 budget draft")).tagIds).toEqual(["tagImportant", "tagErrand"]);
+      expect((await taskByTitle(backend, "Water the plants")).tagIds).toEqual(["tagHome", "tagErrand"]);
+    });
+  });
+
+  it("Delete trashes the whole selection with one Undo", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Plan weekend hike"));
+    await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}{Delete}");
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    expect(screen.queryByText("Plan weekend hike")).not.toBeInTheDocument();
+    expect(await screen.findByText("Moved 2 to-dos to the Trash")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Water the plants")).toBeInTheDocument();
+    expect(screen.getByText("Plan weekend hike")).toBeInTheDocument();
+  });
+
+  it("in the Trash, Delete asks and then deletes for good instead of putting back", async () => {
+    const t = useStore.getState;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    // Put two to-dos in the Trash first.
+    await userEvent.click(inList("Plan weekend hike"));
+    await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}{Delete}");
+    await waitFor(() => expect(screen.queryByText("Water the plants")).not.toBeInTheDocument());
+    await userEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: /^Trash/ }));
+    expect(await screen.findByRole("heading", { name: "Trash" })).toBeInTheDocument();
+    await userEvent.click(inList("Water the plants"));
+    await userEvent.keyboard("{Control>}a{/Control}{Delete}");
+    const dialog = await screen.findByRole("dialog", { name: /Delete 3 to-dos permanently/ });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+    await waitFor(async () => expect((await backend.getState()).snapshot.tasks.some((x) => x.trashed)).toBe(false));
+    expect((await backend.getState()).snapshot.tasks.some((x) => x.title === "Water the plants")).toBe(false);
+    expect(t().view!.tasks.some((x) => x.title === "Plan weekend hike")).toBe(false);
+    expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
+  });
+
+  it("Put Back in the Trash restores the selection", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: /^Trash/ }));
+    await userEvent.click(await screen.findByText("Old idea"));
+    await userEvent.click(screen.getByRole("button", { name: "Put Back" }));
+    await waitFor(async () => expect((await taskByTitle(backend, "Old idea")).trashed).toBe(false));
+  });
+
+  const rowOrder = () => [...document.querySelectorAll<HTMLElement>(".groups .task-row")].map((r) => r.querySelector(".task-title")!.textContent);
+
+  it("Ctrl+↓ / Ctrl+Alt+↑ reorder the selection, and Ctrl+Z puts it back", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const before = rowOrder();
+    const first = before[0]!;
+    await userEvent.click(inList(first));
+    await userEvent.keyboard("{Control>}{ArrowDown}{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).toBe(first));
+    await userEvent.keyboard("{Control>}{Alt>}{ArrowDown}{/Alt}{/Control}");
+    await waitFor(() => expect(rowOrder().indexOf(first)).toBe(before.indexOf("Send wireframes to Priya")));
+    await userEvent.keyboard("{Control>}z{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).toBe(first));
+    await userEvent.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
+    await waitFor(() => expect(rowOrder()[1]).not.toBe(first));
+  });
+
+  it("drag a to-do between others to reorder it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const before = rowOrder();
+    const last = before[before.indexOf("Send wireframes to Priya")]!;
+    const dt = { data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" };
+    const src = inList(last).closest(".task-row")!;
+    const target = inList(before[0]!).closest(".task-row")!;
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    fireEvent.dragOver(target, { dataTransfer: dt, clientY: -5 }); // above the first row's middle
+    expect(document.querySelector(".drop-line")).toBeInTheDocument();
+    fireEvent.drop(target, { dataTransfer: dt, clientY: -5 });
+    await waitFor(() => expect(rowOrder()[0]).toBe(last));
+    expect(document.querySelector(".drop-line")).not.toBeInTheDocument();
+  });
+
+  it("dragging into This Evening schedules it for the evening", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const dt = { data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(inList("Go for a run").closest(".task-row")!, { dataTransfer: dt });
+    const evening = inList("Water the plants").closest(".task-row")!;
+    fireEvent.dragOver(evening, { dataTransfer: dt, clientY: 10 });
+    fireEvent.drop(evening, { dataTransfer: dt, clientY: 10 });
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).evening).toBe(true));
+  });
+
+  it("Space adds a new to-do right below the selected one", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Pick up dry cleaning"));
+    await userEvent.keyboard(" ");
+    const input = await screen.findByRole("textbox", { name: "New to-do title" });
+    expect(input.closest(".task-editor")!.previousElementSibling).toHaveTextContent("Pick up dry cleaning");
+    await userEvent.type(input, "Buy hangers{Enter}");
+    await waitFor(() => {
+      const order = rowOrder();
+      expect(order[order.indexOf("Pick up dry cleaning") + 1]).toBe("Buy hangers");
+    });
+  });
+
+  it("Ctrl+Z undoes completing a to-do", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).status).toBe("completed"));
+    await userEvent.keyboard("{Control>}z{/Control}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).status).toBe("open"));
+  });
+
+  it("projects hide logged items behind a toggle, and typing opens Type Travel", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByText("Trip to Lisbon"));
+    await screen.findByDisplayValue("Trip to Lisbon");
+    expect(screen.queryByText("Book train to Porto")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show 1 logged item" }));
+    expect(screen.getByText("Book train to Porto")).toBeInTheDocument();
+    (document.activeElement as HTMLElement)?.blur();
+    await userEvent.keyboard("w");
+    const find = await screen.findByRole("dialog", { name: "Quick Find" });
+    expect(within(find).getByRole("textbox")).toHaveValue("w");
+  });
+
+  const fakeDT = () => ({ data: {} as Record<string, string>, types: [] as string[], setData(k: string, v: string) { this.data[k] = v; this.types.push(k); }, getData(k: string) { return this.data[k]; }, effectAllowed: "", dropEffect: "" });
+
+  it("Magic Plus: drag the + between to-dos to add one right there", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const dt = fakeDT();
+    fireEvent.dragStart(screen.getByRole("button", { name: "New To-Do" }), { dataTransfer: dt });
+    // jsdom has no pointer positions, so this drops above "Go for a run".
+    const target = inList("Go for a run").closest(".task-row")!;
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    expect(document.querySelector(".drop-line")).toBeInTheDocument();
+    fireEvent.drop(target, { dataTransfer: dt });
+    const input = await screen.findByRole("textbox", { name: "New to-do title" });
+    await userEvent.type(input, "Stretch{Enter}");
+    await waitFor(() => {
+      const order = rowOrder();
+      expect(order[order.indexOf("Go for a run") - 1]).toBe("Stretch");
+    });
+  });
+
+  it("Alt+key toggles a tag that has a shortcut", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => useStore.getState().apply({ type: "setTagShortcut", id: "tagErrand", shortcut: "e" }));
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.keyboard("{Alt>}e{/Alt}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).tagIds).toContain("tagErrand"));
+    await userEvent.keyboard("{Alt>}e{/Alt}");
+    await waitFor(async () => expect((await taskByTitle(backend, "Go for a run")).tagIds).not.toContain("tagErrand"));
+  });
+
+  it("things:/// links add to-dos and show lists, like Things' URL scheme", async () => {
+    const { handleLink } = await import("./links");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => handleLink("things:///add?title=Buy%20milk&when=today&tags=Errand&list=Trip%20to%20Lisbon&checklist-items=a%0Ab"));
+    await waitFor(async () => {
+      const t = await taskByTitle(backend, "Buy milk");
+      expect(t.tagIds).toEqual(["tagErrand"]);
+      expect(t.projectId).toBe((await taskByTitle(backend, "Trip to Lisbon")).id);
+      expect((await backend.getState()).snapshot.checklist.filter((c) => c.taskId === t.id)).toHaveLength(2);
+    });
+    await act(() => handleLink("things:///show?id=upcoming"));
+    expect(await screen.findByRole("heading", { name: "Upcoming" })).toBeInTheDocument();
+    await act(() => handleLink("things:///search?query=lis"));
+    expect(within(await screen.findByRole("dialog", { name: "Quick Find" })).getByRole("textbox")).toHaveValue("lis");
+  });
+
+  it("areas collapse in the sidebar", async () => {
+    localStorage.removeItem("tings3.collapsedAreas");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByText("Trip to Lisbon")).toBeInTheDocument();
+    await userEvent.click(within(nav).getAllByRole("button", { name: "Hide projects", hidden: true })[0]);
+    expect(within(nav).queryByText("Trip to Lisbon")).not.toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole("button", { name: /Show 2 projects/, hidden: true }));
+    expect(within(nav).getByText("Trip to Lisbon")).toBeInTheDocument();
+  });
+
+  it("pasting several lines into a checklist adds one item per line", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.click(inList("Go for a run")); // open it
+    await userEvent.click(screen.getByTitle("Checklist"));
+    const input = screen.getByPlaceholderText("Add checklist item");
+    input.focus();
+    await userEvent.paste("shoes\nwater\n- [ ] watch");
+    const id = (await taskByTitle(backend, "Go for a run")).id;
+    await waitFor(async () => expect((await backend.getState()).snapshot.checklist.filter((c) => c.taskId === id).map((c) => c.title)).toEqual(["shoes", "water", "watch"]));
+  });
+
+  it("Google Drive backup: set up, connect, back up, restore and disconnect", async () => {
+    useStore.setState({ drive: null });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await act(() => useStore.getState().openDialog({ kind: "settings", tab: "drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Set Up Google Drive…" }));
+    await userEvent.type(within(dialog).getByLabelText("Client ID"), "not-a-client");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/doesn't look like a Google OAuth client ID/)).toBeInTheDocument();
+    await userEvent.clear(within(dialog).getByLabelText("Client ID"));
+    await userEvent.type(within(dialog).getByLabelText("Client ID"), "123-abc.apps.googleusercontent.com");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Connect Google Drive…" }));
+    expect(await within(dialog).findByText("you@gmail.com")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Latest")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Last backup just now/)).toBeInTheDocument();
+    // The sidebar says so too.
+    expect(within(screen.getByRole("navigation")).getByRole("button", { name: /Backed up to Drive just now/ })).toBeInTheDocument();
+
+    // Restore (lists on this PC): delete something, then bring it back.
+    const t = useStore.getState().view!.tasks.find((x) => x.title === "Water the plants")!;
+    await act(() => useStore.getState().apply({ type: "setTrashed", id: t.id, baseRev: t.rev, trashed: true }));
+    const latest = within(dialog).getByText("Latest").closest(".drive-row") as HTMLElement;
+    await userEvent.click(within(latest).getByRole("button", { name: "Restore…" }));
+    await userEvent.click(within(latest).getByRole("button", { name: "Restore" }));
+    await waitFor(async () => expect((await taskByTitle(backend, "Water the plants")).trashed).toBe(false));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    expect(await within(dialog).findByRole("button", { name: "Connect Google Drive…" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation")).queryByRole("button", { name: /Backed up to Drive/ })).not.toBeInTheDocument();
+  });
+
+  it("Select mode from the list ••• menu, with Done to leave it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: "List actions" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent?.replace(/Ctrl.*$/, ""))).toEqual(["Filter by Tag", "Select", "Paste", "Share…"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Select/ }));
+    expect(screen.getByRole("toolbar", { name: "Selected to-dos" })).toHaveTextContent("Select to-dos");
+    await userEvent.click(inList("Go for a run"));
+    await userEvent.click(inList("Water the plants"));
+    expect(screen.getByRole("toolbar", { name: "Selected to-dos" })).toHaveTextContent("2 selected");
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("toolbar", { name: "Selected to-dos" })).not.toBeInTheDocument();
+  });
+
+  it("Someday to-dos get a dashed box", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: /Someday/ }));
+    expect(await screen.findByRole("checkbox", { name: /Complete “Learn to make sourdough/ })).toHaveClass("someday");
+    await userEvent.click(within(screen.getByRole("navigation")).getAllByRole("button", { name: /^Today/ })[0]);
+    expect(await screen.findByRole("checkbox", { name: /Complete “Go for a run/ })).not.toHaveClass("someday");
+  });
+
+  it("an open to-do on Today links to its project", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(inList("Compare flight prices"));
+    await userEvent.click(inList("Compare flight prices")); // a second click opens it
+    const link = await screen.findByRole("button", { name: /Trip to Lisbon.*Book/ });
+    expect(link).toHaveTextContent("Book");
+    await userEvent.click(link);
+    expect(await screen.findByDisplayValue("Trip to Lisbon")).toBeInTheDocument();
+    expect(useStore.getState().selectedId).toBe((await taskByTitle(backend, "Compare flight prices")).id);
+  });
+
+  it("the project ••• menu matches Things", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(within(screen.getByRole("navigation")).getByText("Trip to Lisbon"));
+    await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
+      "Open in New Window",
+      "Complete Project",
+      "When",
+      "Add Tags…",
+      "Change Deadline…",
+      "Repeat…",
+      "Move…",
+      "Duplicate",
+      "Rename…",
+      "Delete Project",
+      "Share…",
+      // The list's own actions, merged in (no second ••• in the corner).
+      "Filter by Tag",
+      "SelectCtrl+A",
+      "PasteCtrl+V",
+    ]);
+    expect(screen.queryByRole("button", { name: "List actions" })).toBeNull();
+  });
+
+  it("toggles the calendar panel with Ctrl+Alt+C and the title-bar button", async () => {
+    setCalendarApiForTests(new MockCalendarApi(false));
+    useCalendar.setState({ open: false, status: null });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    expect(screen.queryByRole("complementary", { name: "Google Calendar" })).toBeNull();
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true, altKey: true });
+    expect(await screen.findByRole("complementary", { name: "Google Calendar" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Hide calendar" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Google Calendar" })).toBeNull());
+    useCalendar.setState({ open: false });
+  });
+
+  it("searches and filters the Logbook", async () => {
+    useLogbookFilter.getState().reset();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    await userEvent.click(screen.getByRole("button", { name: /Logbook/ }));
+    expect(await screen.findByText("Book train to Porto")).toBeInTheDocument();
+    expect(screen.getByText("Send invoice #1042")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Search the Logbook" }), "lisbon");
+    // Matches through the project name.
+    await waitFor(() => expect(screen.queryByText("Send invoice #1042")).toBeNull());
+    expect(inList("Book train to Porto")).toBeInTheDocument();
+    await userEvent.clear(screen.getByRole("textbox", { name: "Search the Logbook" }));
+    await userEvent.click(screen.getByRole("button", { name: /^When completed/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Today" }));
+    await waitFor(() => expect(screen.queryByText("Book train to Porto")).toBeNull());
+    await userEvent.click(screen.getByRole("radio", { name: "Canceled" }));
+    expect(await screen.findByText("Nothing matches these filters.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear Filters" }));
+    expect(await screen.findByText("Book train to Porto")).toBeInTheDocument();
+  });
+
+  it("shows formatted notes and edits them as text", async () => {
+    await backend.setPolicy({ writes: true, destructive: false });
+    const task = await taskByTitle(backend, "Review Q3 budget draft");
+    await backend.apply({ type: "updateTask", id: task.id, baseRev: null, notes: "**Focus** on spend\n- [ ] marketing\n- [x] travel" });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Today" });
+    fireEvent.doubleClick(inList("Review Q3 budget draft"));
+    const rendered = await screen.findByRole("button", { name: /Notes — click to edit/ });
+    expect(within(rendered).getByText("Focus").tagName).toBe("STRONG");
+    const boxes = within(rendered).getAllByRole("checkbox");
+    expect(boxes.map((b) => b.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+    await userEvent.click(boxes[0]);
+    await waitFor(async () => expect((await taskByTitle(backend, "Review Q3 budget draft")).notes).toContain("- [x] marketing"));
+    await userEvent.click(within(screen.getByRole("button", { name: /Notes — click to edit/ })).getByText(/on spend/));
+    const textarea = await screen.findByRole("textbox", { name: "Notes" });
+    expect(textarea).toHaveValue("**Focus** on spend\n- [x] marketing\n- [x] travel");
+    expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
   });
 });

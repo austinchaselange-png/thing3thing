@@ -10,3 +10,4 @@ src-tauri/gen/schemas/
 *.sqlite
 *.sqlite-*
 demo-history.json
+/target-test

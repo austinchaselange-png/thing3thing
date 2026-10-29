@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-create"
+description = "Enables the drive_create command without any pre-configured scope."
+commands.allow = ["drive_create"]
+
+[[permission]]
+identifier = "deny-drive-create"
+description = "Denies the drive_create command without any pre-configured scope."
+commands.deny = ["drive_create"]

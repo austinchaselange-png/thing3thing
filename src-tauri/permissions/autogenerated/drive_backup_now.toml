@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-backup-now"
+description = "Enables the drive_backup_now command without any pre-configured scope."
+commands.allow = ["drive_backup_now"]
+
+[[permission]]
+identifier = "deny-drive-backup-now"
+description = "Denies the drive_backup_now command without any pre-configured scope."
+commands.deny = ["drive_backup_now"]

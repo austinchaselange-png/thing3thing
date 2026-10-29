@@ -97,6 +97,11 @@ impl FakeCloud {
         self.inner.lock().unwrap().schema = schema;
     }
 
+    /// The whole local history: what an "On this PC" backup needs to restore exactly.
+    pub fn history(&self) -> Vec<Vec<Item>> {
+        self.inner.lock().unwrap().history.clone()
+    }
+
     /// Simulates a change made by another device (e.g. Things on iPhone).
     pub fn push_remote(&self, entry: Vec<Item>) {
         self.inner.lock().unwrap().history.push(entry);

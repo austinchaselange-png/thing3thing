@@ -216,6 +216,7 @@ export function TagPicker({ anchor, value, onChange, onClose }: { anchor: HTMLEl
         {shown.map((t) => (
           <button key={t.id} className={`menu-item${value.includes(t.id) ? " checked" : ""}`} onClick={() => toggle(t.id)} role="menuitemcheckbox" aria-checked={value.includes(t.id)}>
             <TagIcon /> <span className="grow">{t.title}</span>
+            {t.shortcut && <kbd className="tag-kbd">Alt+{t.shortcut.toUpperCase()}</kbd>}
             {value.includes(t.id) && <span className="check">✓</span>}
           </button>
         ))}

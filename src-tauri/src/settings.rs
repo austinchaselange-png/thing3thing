@@ -53,18 +53,54 @@ pub struct SettingsPatch {
     pub mica: Option<bool>,
 }
 
+/// Writes `body` to a uniquely named temporary file next to `path`, flushes it
+/// to disk, then renames it over `path`. Readers see the old or the new file, never half of one.
+pub fn write_flushed(path: &Path, body: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp: PathBuf = path.with_file_name(format!(".{name}.{}.tmp", things_cloud::id::new_id()));
+    let result = (|| {
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(body)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 impl Settings {
+    /// Missing file: defaults. Unreadable or damaged file: the damaged copy is
+    /// kept beside it and the app starts signed out (rather than quietly
+    /// switching to the "On this PC" lists).
     pub fn load(path: &Path) -> Settings {
-        std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
+            Err(e) => {
+                log::error!("settings: could not read {}: {e}", path.display());
+                return Settings { mode: AccountMode::SignedOut, ..Settings::default() };
+            }
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                let aside = path.with_extension(format!("damaged-{}.json", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+                let kept = std::fs::copy(path, &aside).is_ok();
+                log::error!("settings: {} is damaged ({e}); kept a copy: {kept}", path.display());
+                Settings { mode: AccountMode::SignedOut, ..Settings::default() }
+            }
+        }
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp: PathBuf = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
-        std::fs::rename(tmp, path)
+        write_flushed(path, &serde_json::to_vec_pretty(self)?)
     }
 
     pub fn apply(&mut self, p: SettingsPatch) {

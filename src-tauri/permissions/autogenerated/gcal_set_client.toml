@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gcal-set-client"
+description = "Enables the gcal_set_client command without any pre-configured scope."
+commands.allow = ["gcal_set_client"]
+
+[[permission]]
+identifier = "deny-gcal-set-client"
+description = "Denies the gcal_set_client command without any pre-configured scope."
+commands.deny = ["gcal_set_client"]

@@ -4,15 +4,17 @@
 
 | Secret | Stored in | Notes |
 |---|---|---|
-| Things Cloud password | Windows Credential Manager (`Tings 3 (Things Cloud)` / your email) | Encrypted with DPAPI for your Windows user. Sent only to `https://cloud.culturedcode.com` in the `Authorization` header of the account-verify request. |
+| Things Cloud password | Windows Credential Manager (`Things 3 (Things Cloud)` / your email) | Encrypted with DPAPI for your Windows user. Sent only to `https://cloud.culturedcode.com` in the `Authorization` header of the account-verify request. |
 | Things Cloud history key | Same Credential Manager entry | Grants read **and write** access to all your Things data; treated like a password. Never logged, never shown, never sent to the UI. |
 | Your to-dos | `%LOCALAPPDATA%\app.tings3.desktop\cache-*.sqlite` | Raw event log for offline use. Protected by your Windows account's file permissions, **not** encrypted at rest. Delete it with Settings → Account → Disconnect → "Also delete the local copy". |
 | Preferences | `%APPDATA%\app.tings3.desktop\settings.json` | Your email address and UI preferences. No secrets. |
+| Google Calendar sign-in | Windows Credential Manager (`Things 3 (Google Calendar)`) | Its own refresh token with the **`calendar.readonly`** scope only, separate from the Drive backup's. Revoked and deleted by the panel's Disconnect. |
+| Your calendar events | `%LOCALAPPDATA%\app.tings3.desktop\calendar-cache.json` | The last events fetched (about a year either side of today), so the panel works offline. Not encrypted at rest; deleted on Disconnect. |
 
 If Windows Credential Manager is unavailable, connecting fails. There is no
 plaintext fallback.
 
-## What Tings 3 will never do
+## What Things 3 will never do
 
 * Put credentials in the repository, build logs, CI configuration or cloud
   session environments. The CI workflows use **no secrets** and make no
@@ -27,7 +29,10 @@ plaintext fallback.
 * Content-Security-Policy restricts the webview to bundled code; no remote
   scripts.
 * IPC commands are gated per window (`src-tauri/capabilities/`). The
-  quick-entry window can only read state and create to-dos.
+  quick-entry window can only read state and create to-dos; project windows
+  can read and change to-dos but not accounts, settings, backups or the calendar.
+* The calendar panel can't change events: it only ever asks Google for
+  read-only access, and event descriptions are shown as text, never as HTML.
 * `freezePrototype` is enabled.
 * The Rust `Secret` type redacts itself in `Debug`/`Display` and zeroes memory
   on drop.
@@ -39,7 +44,7 @@ plaintext fallback.
 * The protocol is unofficial; see [docs/THINGS_CLOUD_RESEARCH.md](docs/THINGS_CLOUD_RESEARCH.md)
   for its risks, including permanent damage to an account from a malformed write.
 * The reference MCP repository contains a committed test-account password in
-  its `CLAUDE.md`. Tings 3 does not use or copy it.
+  its `CLAUDE.md`. Things 3 does not use or copy it.
 
 ## Reporting
 

@@ -1,18 +1,58 @@
 import { create } from "zustand";
 import { getBackend } from "./backend";
 import { applyMutation } from "./lib/applyMutation";
-import type { AppState, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
+import { inverseOf, pinned, type UndoStep } from "./lib/undo";
+import { projectWindowId } from "./windowMode";
+import type { AppState, DriveStatus, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
+
+export type SettingsTab = "account" | "sync" | "drive" | "general" | "about";
 
 export type Dialog =
-  | { kind: "settings"; tab?: "account" | "sync" | "general" | "about" }
-  | { kind: "quickFind" }
+  | { kind: "settings"; tab?: SettingsTab }
+  | { kind: "quickFind"; initial?: string }
   | { kind: "conflict"; mutation: Mutation; error: WriteError }
   | { kind: "confirm"; title: string; body: string; mutation: Mutation; phrase: boolean }
   | { kind: "issue"; issue: Issue }
   | { kind: "writeOptIn" }
   | { kind: "destructiveOptIn" }
   | { kind: "move"; taskId: string }
-  | { kind: "newList" };
+  | { kind: "newList" }
+  | { kind: "shortcuts" }
+  | { kind: "prompt"; title: string; label: string; initial: string; confirmLabel: string; onSubmit: (value: string) => void };
+
+/** One entry in a right-click menu. */
+export type MenuItem =
+  | { separator: true }
+  | {
+      separator?: false;
+      label: string;
+      icon?: import("react").ReactNode;
+      shortcut?: string;
+      onSelect?: () => void;
+      disabled?: boolean;
+      /** Shown as a tooltip, e.g. why an item is disabled. */
+      hint?: string;
+      danger?: boolean;
+      checked?: boolean;
+      submenu?: MenuItem[];
+    };
+
+export interface ContextMenuState {
+  x: number;
+  y: number;
+  items: MenuItem[];
+}
+
+/** A picker popover opened from a menu, a row button or a shortcut. */
+export interface PickerState {
+  kind: "when" | "move" | "deadline" | "tags" | "heading";
+  taskId: string | null;
+  /** Several to-dos at once (multi-selection). Takes precedence over taskId. */
+  taskIds?: string[];
+  anchor: HTMLElement | null;
+  /** For "heading": the project to add it to. */
+  projectId?: string;
+}
 
 export interface Toast {
   id: number;
@@ -33,23 +73,49 @@ interface Store {
   view: Snapshot | null;
   pending: Pending[];
   selection: Selection;
+  /** The focused row: last clicked, target of the keyboard. */
   selectedId: string | null;
+  /** Every selected row, in click order. Contains selectedId when it is set. */
+  selectedIds: string[];
+  /** Where a Shift-click range starts. */
+  anchorId: string | null;
+  /** "Select" mode from the ••• menu: clicks toggle rows, the bulk bar stays up. */
+  selectMode: boolean;
   editingId: string | null;
   /** Completed in this visit to the list; stay visible (checked) like Things. */
   recentlyCompleted: string[];
   tagFilter: string | null;
   dialog: Dialog | null;
   toasts: Toast[];
+  menu: ContextMenuState | null;
+  picker: PickerState | null;
+  /** Opens a context menu at the pointer (or at an element for keyboard use). */
+  openMenu(at: { clientX: number; clientY: number } | HTMLElement, items: MenuItem[]): void;
+  closeMenu(): void;
+  openPicker(p: PickerState | null): void;
   init(): Promise<void>;
   setApp(app: AppState): void;
   select(sel: Selection): void;
   selectTask(id: string | null): void;
+  /** Ctrl-click: adds or removes one row. */
+  toggleSelected(id: string): void;
+  /** Replaces the multi-selection, e.g. Shift-click ranges or Ctrl+A. */
+  setSelected(ids: string[], focus?: string | null): void;
+  setSelectMode(on: boolean): void;
   edit(id: string | null): void;
   setTagFilter(id: string | null): void;
   openDialog(d: Dialog | null): void;
   toast(text: string, tone?: Toast["tone"], action?: Toast["action"]): void;
   dismissToast(id: number): void;
-  apply(m: Mutation, opts?: { force?: boolean; quiet?: boolean }): Promise<WriteReport | null>;
+  apply(m: Mutation, opts?: { force?: boolean; quiet?: boolean; record?: boolean }): Promise<WriteReport | null>;
+  undoStack: UndoStep[];
+  redoStack: UndoStep[];
+  undo(): Promise<void>;
+  redo(): Promise<void>;
+  sidebarHidden: boolean;
+  toggleSidebar(): void;
+  /** Google Drive backup status; null until loaded. */
+  drive: DriveStatus | null;
   canWrite(): boolean;
 }
 
@@ -68,6 +134,19 @@ function computeView(app: AppState | null, pending: Pending[]): Snapshot | null 
   return snap;
 }
 
+/** Open editors register a save here, so quitting can save them first. */
+const flushers = new Set<() => Promise<unknown> | void>();
+
+export function registerFlush(f: () => Promise<unknown> | void): () => void {
+  flushers.add(f);
+  return () => void flushers.delete(f);
+}
+
+/** Saves every open editor; resolves once those writes have finished. */
+export async function flushEdits(): Promise<void> {
+  await Promise.allSettled([...flushers].map((f) => f()));
+}
+
 export function isWriteError(e: unknown): e is WriteError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
@@ -77,17 +156,88 @@ export const useStore = create<Store>((set, get) => ({
   loadError: null,
   view: null,
   pending: [],
-  selection: { kind: "list", id: "today" },
+  selection: projectWindowId ? { kind: "project", id: projectWindowId } : { kind: "list", id: "today" },
   selectedId: null,
+  selectedIds: [],
+  anchorId: null,
+  selectMode: false,
   editingId: null,
   recentlyCompleted: [],
   tagFilter: null,
   dialog: null,
   toasts: [],
+  menu: null,
+  picker: null,
+  undoStack: [],
+  redoStack: [],
+  drive: null,
+  sidebarHidden: projectWindowId ? true : readPref("tings3.sidebarHidden") === "1",
+
+  toggleSidebar() {
+    if (projectWindowId) return;
+    const sidebarHidden = !get().sidebarHidden;
+    writePref("tings3.sidebarHidden", sidebarHidden ? "1" : "0");
+    set({ sidebarHidden });
+  },
+
+  async undo() {
+    const step = get().undoStack.at(-1);
+    if (!step || undoBusy) return;
+    undoBusy = true;
+    try {
+      const done = await runStep(step.undo, (rest) => set((s) => ({ undoStack: s.undoStack.map((x) => (x === step ? { ...step, undo: rest } : x)) })));
+      if (!done) return;
+      const redo = step.redo.map((m) => pinned(m, done.get(idOf(m)) ?? done.get("") ?? 0));
+      set((s) => ({ undoStack: s.undoStack.filter((x) => x !== step), redoStack: [...s.redoStack, { ...step, redo }] }));
+    } finally {
+      undoBusy = false;
+    }
+  },
+
+  async redo() {
+    const step = get().redoStack.at(-1);
+    if (!step || undoBusy) return;
+    undoBusy = true;
+    try {
+      const done = await runStep(step.redo, (rest) => set((s) => ({ redoStack: s.redoStack.map((x) => (x === step ? { ...step, redo: rest } : x)) })));
+      if (!done) return;
+      const undo = step.undo.map((m) => pinned(m, done.get(idOf(m)) ?? done.get("") ?? 0));
+      set((s) => ({ redoStack: s.redoStack.filter((x) => x !== step), undoStack: [...s.undoStack, { ...step, undo, at: -1 }] }));
+    } finally {
+      undoBusy = false;
+    }
+  },
+
+  openMenu(at, items) {
+    if (!items.length) return;
+    let x: number;
+    let y: number;
+    if (at instanceof HTMLElement) {
+      const r = at.getBoundingClientRect();
+      x = r.left + Math.min(48, r.width / 2);
+      y = r.top + Math.min(r.height, 28);
+    } else {
+      x = at.clientX;
+      y = at.clientY;
+    }
+    set({ menu: { x, y, items } });
+  },
+
+  closeMenu() {
+    set({ menu: null });
+  },
+
+  openPicker(picker) {
+    set({ picker, menu: null });
+  },
 
   async init() {
     const backend = getBackend();
     backend.subscribe((app) => get().setApp(app));
+    if (!projectWindowId) {
+      backend.onDrive((drive) => set({ drive }));
+      void backend.driveStatus().then((drive) => set({ drive }), () => {});
+    }
     try {
       get().setApp(await backend.getState());
     } catch (e) {
@@ -96,19 +246,42 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setApp(app) {
-    set((s) => ({ app, view: computeView(app, s.pending), loadError: null }));
+    set((s) => {
+      // A status-only update (same data revision): keep the current snapshot
+      // and view objects so lists don't rebuild every poll.
+      if (s.app && s.view && app.dataRev !== undefined && app.dataRev === s.app.dataRev) {
+        return { app: { ...app, snapshot: s.app.snapshot }, loadError: null };
+      }
+      return { app, view: computeView(app, s.pending), loadError: null };
+    });
   },
 
   select(selection) {
-    set({ selection, selectedId: null, editingId: null, recentlyCompleted: [], tagFilter: null });
+    set({ selection, selectedId: null, selectedIds: [], anchorId: null, selectMode: false, editingId: null, recentlyCompleted: [], tagFilter: null });
   },
 
   selectTask(id) {
-    set((s) => ({ selectedId: id, editingId: s.editingId && s.editingId !== id ? null : s.editingId }));
+    set((s) => ({ selectedId: id, selectedIds: id ? [id] : [], anchorId: id, editingId: s.editingId && s.editingId !== id ? null : s.editingId }));
+  },
+
+  toggleSelected(id) {
+    set((s) => {
+      const has = s.selectedIds.includes(id);
+      const selectedIds = has ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id];
+      return { selectedIds, selectedId: has ? (selectedIds.at(-1) ?? null) : id, anchorId: id, editingId: null };
+    });
+  },
+
+  setSelected(ids, focus) {
+    set((s) => ({ selectedIds: ids, selectedId: focus === undefined ? (ids.at(-1) ?? null) : focus, anchorId: s.anchorId ?? ids[0] ?? null, editingId: null }));
+  },
+
+  setSelectMode(selectMode) {
+    set({ selectMode, editingId: null, ...(selectMode ? {} : { selectedIds: [], selectedId: null, anchorId: null }) });
   },
 
   edit(id) {
-    set({ editingId: id, selectedId: id ?? get().selectedId });
+    set((s) => ({ editingId: id, selectedId: id ?? s.selectedId, selectedIds: id ? [id] : s.selectedIds, anchorId: id ?? s.anchorId, selectMode: id ? false : s.selectMode }));
   },
 
   setTagFilter(tagFilter) {
@@ -122,7 +295,8 @@ export const useStore = create<Store>((set, get) => ({
   toast(text, tone = "info", action) {
     const id = ++seq;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, tone, action }] }));
-    setTimeout(() => get().dismissToast(id), tone === "error" ? 8000 : 4000);
+    // Toasts with a button stay longer so there is time to use it.
+    setTimeout(() => get().dismissToast(id), tone === "error" || action ? 8000 : 4000);
   },
 
   dismissToast(id) {
@@ -142,9 +316,13 @@ export const useStore = create<Store>((set, get) => ({
       return null;
     }
     if (!app.policy.writes) {
-      get().toast("Tings 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
+      get().toast("Things 3 is read-only for this account.", "info", { label: "Enable writes…", run: () => get().openDialog({ kind: "writeOptIn" }) });
       return null;
     }
+    // Undo: what puts things back, from the state before this change.
+    const record = opts.record !== false;
+    const inverse = record && get().view ? inverseOf(mutation, get().view!) : null;
+    const action = actionSeq;
     const pending: Pending = { id: ++seq, mutation };
     if (mutation.type === "setStatus" && mutation.status !== "open") {
       set((s) => ({ recentlyCompleted: [...s.recentlyCompleted, mutation.id] }));
@@ -161,7 +339,11 @@ export const useStore = create<Store>((set, get) => ({
     try {
       const report = await getBackend().apply(mutation, { force: opts.force });
       done();
-      if (report.reconciled) get().toast("The connection dropped, but Tings 3 confirmed the change was saved.", "success");
+      if (record) {
+        const undo = mutation.type === "createTask" && report.created[0] ? [{ type: "setTrashed", id: report.created[0], baseRev: null, trashed: true } as Mutation] : inverse;
+        if (undo) pushUndo(undo.map((m) => pinned(m, report.serverIndex)), mutation, action);
+      }
+      if (report.reconciled) get().toast("The connection dropped, but Things 3 confirmed the change was saved.", "success");
       return report;
     } catch (e) {
       done();
@@ -171,6 +353,75 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 }));
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/**
+ * Each key press, click or drop is one user action; every change it causes
+ * (a bulk edit, a drag that moves then reorders) becomes one Undo step.
+ */
+let actionSeq = 0;
+if (typeof window !== "undefined") {
+  for (const type of ["keydown", "pointerdown", "drop"]) window.addEventListener(type, () => void actionSeq++, true);
+}
+
+let undoBusy = false;
+
+/** The entity a mutation acts on ("" when it has no single id). */
+function idOf(m: Mutation): string {
+  return "id" in m && typeof m.id === "string" ? m.id : "";
+}
+
+/**
+ * Applies a step's mutations in order. Returns, per entity id, the history
+ * head after its write ("" holds the last one), or null if one failed; then
+ * `keep` receives the mutations still to apply, so the step can be retried.
+ */
+async function runStep(ms: Mutation[], keep: (rest: Mutation[]) => void): Promise<Map<string, number> | null> {
+  const heads = new Map<string, number>();
+  for (let i = 0; i < ms.length; i++) {
+    // Our own earlier write in this step isn't a conflict: start from it.
+    const id = idOf(ms[i]);
+    const m = id && heads.has(id) ? pinned(ms[i], heads.get(id)!) : ms[i];
+    const r = await useStore.getState().apply(m, { record: false });
+    if (!r) {
+      keep(ms.slice(i));
+      return null;
+    }
+    heads.set(idOf(ms[i]), r.serverIndex);
+    heads.set("", r.serverIndex);
+  }
+  return heads;
+}
+
+/** Records an undo step, merged with the previous one when the same user action caused both. */
+function pushUndo(undo: Mutation[], original: Mutation, action: number) {
+  const now = action;
+  // Redo re-applies the change as it is now, without the old conflict check.
+  const redo = ("baseRev" in original ? { ...original, baseRev: null } : original) as Mutation;
+  useStore.setState((s) => {
+    const last = s.undoStack.at(-1);
+    const stack =
+      last && last.at === now
+        ? [...s.undoStack.slice(0, -1), { at: now, undo: [...undo, ...last.undo], redo: [...last.redo, redo] }]
+        : [...s.undoStack, { at: now, undo, redo: [redo] }].slice(-100);
+    return { undoStack: stack, redoStack: [] };
+  });
+}
 
 function handleWriteError(mutation: Mutation, e: unknown) {
   const s = useStore.getState();
@@ -202,4 +453,16 @@ function handleWriteError(mutation: Mutation, e: unknown) {
 /** Convenience: current task by id from the optimistic view. */
 export function useTask(id: string | null): Task | undefined {
   return useStore((s) => (id ? s.view?.tasks.find((t) => t.id === id) : undefined));
+}
+
+/** The selected to-dos, in list order where possible. */
+export function selectedTasks(): Task[] {
+  const s = useStore.getState();
+  const byId = new Map((s.view?.tasks ?? []).map((t) => [t.id, t]));
+  return s.selectedIds.map((id) => byId.get(id)).filter((t): t is Task => !!t);
+}
+
+/** True while several rows are selected or Select mode is on. */
+export function useMulti(): boolean {
+  return useStore((s) => s.selectMode || s.selectedIds.length > 1);
 }

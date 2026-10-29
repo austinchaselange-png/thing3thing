@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-restore"
+description = "Enables the drive_restore command without any pre-configured scope."
+commands.allow = ["drive_restore"]
+
+[[permission]]
+identifier = "deny-drive-restore"
+description = "Denies the drive_restore command without any pre-configured scope."
+commands.deny = ["drive_restore"]

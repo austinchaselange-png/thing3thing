@@ -7,6 +7,7 @@ import { belongsTo, type Index } from "../lib/lists";
 import { useStore } from "../store";
 import type { ListId, Selection, Snapshot } from "../types";
 import { ChevronIcon, FlagIcon } from "./Icons";
+import { tagMenu, taskMenu } from "./menus";
 
 const COLLAPSE_KEY = "tings3.sidebar.collapsed";
 
@@ -91,7 +92,13 @@ function ComingUpCard({ snap, ix, today }: { snap: Snapshot; ix: Index; today: s
         <ul className="up-list">
           {items.map((it) => (
             <li key={`${it.task.id}-${it.kind}`}>
-              <button className="up-row" onClick={() => goTo(it, ix, today)} title={`${it.kind === "deadline" ? "Deadline" : "Starts"} ${relativeLabel(it.date, today)}`}>
+              <button
+                className="up-row"
+                onClick={() => goTo(it, ix, today)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  useStore.getState().openMenu(e, taskMenu(it.task));
+                }} title={`${it.kind === "deadline" ? "Deadline" : "Starts"} ${relativeLabel(it.date, today)}`}>
                 {it.kind === "deadline" ? <FlagIcon size={11} className="up-flag" /> : <span className="up-dot" />}
                 <span className="up-title">{it.task.title || "Untitled"}</span>
                 <span className={`up-days${it.days <= 0 ? " now" : it.days <= 7 ? " soon" : ""}`}>{countdown(it.days)}</span>
@@ -115,7 +122,15 @@ function TagsCard({ snap, ix }: { snap: Snapshot; ix: Index }) {
       ) : (
         <div className="tag-cloud">
           {tags.map((t) => (
-            <button key={t.id} className={`tag-pill${active === t.id ? " active" : ""}`} onClick={() => useStore.getState().select({ kind: "tag", id: t.id })}>
+            <button
+              key={t.id}
+              className={`tag-pill${active === t.id ? " active" : ""}`}
+              onClick={() => useStore.getState().select({ kind: "tag", id: t.id })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                useStore.getState().openMenu(e, tagMenu(t));
+              }}
+            >
               {t.title}
               {!!counts.get(t.id) && <span>{counts.get(t.id)}</span>}
             </button>

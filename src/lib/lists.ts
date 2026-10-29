@@ -216,7 +216,7 @@ export function sidebarTree(s: Snapshot, ix: Index): { looseProjects: Task[]; ar
   const projects = s.tasks.filter((t) => t.type === "project" && isLive(t, ix)).sort(byIndex);
   return {
     looseProjects: projects.filter((p) => !p.areaId || !ix.areas.has(p.areaId)),
-    areas: s.areas.map((area) => ({ area, projects: projects.filter((p) => p.areaId === area.id) })),
+    areas: [...s.areas].sort((a, b) => a.index - b.index).map((area) => ({ area, projects: projects.filter((p) => p.areaId === area.id) })),
   };
 }
 
@@ -227,4 +227,123 @@ export function search(query: string, s: Snapshot, ix: Index): Task[] {
     .filter((t) => !t.trashed && t.type !== "heading" && (t.title.toLowerCase().includes(q) || t.notes.toLowerCase().includes(q)))
     .sort((a, b) => Number(isLive(b, ix)) - Number(isLive(a, ix)) || Number(b.title.toLowerCase().startsWith(q)) - Number(a.title.toLowerCase().startsWith(q)))
     .slice(0, 50);
+}
+
+// ---------------- Logbook search and filters ----------------
+
+export type LogPeriod = "all" | "today" | "yesterday" | "week" | "lastWeek" | "7d" | "30d" | "month" | "year" | "custom";
+
+export interface LogbookFilter {
+  query: string;
+  period: LogPeriod;
+  /** Custom range, inclusive "YYYY-MM-DD" (either end may be open). */
+  from: string | null;
+  to: string | null;
+  status: "all" | "completed" | "canceled";
+  kind: "all" | "task" | "project";
+  /** Only items in this project or area. */
+  container: string | null;
+}
+
+export const EMPTY_LOGBOOK_FILTER: LogbookFilter = { query: "", period: "all", from: null, to: null, status: "all", kind: "all", container: null };
+
+export function isLogbookFiltered(f: LogbookFilter): boolean {
+  return !!f.query.trim() || f.period !== "all" || f.status !== "all" || f.kind !== "all" || !!f.container;
+}
+
+/** Inclusive date range for a period; weeks start on Monday. */
+export function periodRange(f: Pick<LogbookFilter, "period" | "from" | "to">, today: string): { from: string | null; to: string | null } {
+  const d = parseYmd(today);
+  const monday = addDays(today, -((d.getDay() + 6) % 7));
+  switch (f.period) {
+    case "all":
+      return { from: null, to: null };
+    case "today":
+      return { from: today, to: today };
+    case "yesterday":
+      return { from: addDays(today, -1), to: addDays(today, -1) };
+    case "week":
+      return { from: monday, to: today };
+    case "lastWeek":
+      return { from: addDays(monday, -7), to: addDays(monday, -1) };
+    case "7d":
+      return { from: addDays(today, -6), to: today };
+    case "30d":
+      return { from: addDays(today, -29), to: today };
+    case "month":
+      return { from: `${today.slice(0, 7)}-01`, to: today };
+    case "year":
+      return { from: `${today.slice(0, 4)}-01-01`, to: today };
+    case "custom": {
+      const [a, b] = [f.from, f.to];
+      return a && b && a > b ? { from: b, to: a } : { from: a, to: b };
+    }
+  }
+}
+
+function completedDay(t: Task): string | null {
+  if (!t.completedAt) return null;
+  const d = new Date(t.completedAt);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Returns a predicate for Logbook items. Search looks at the title, notes,
+ * checklist items, and the names of the project, area and tags.
+ */
+export function logbookMatcher(f: LogbookFilter, s: Snapshot, ix: Index, today: string): (t: Task) => boolean {
+  const range = periodRange(f, today);
+  const words = f.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tagNames = new Map(s.tags.map((t) => [t.id, t.title.toLowerCase()]));
+  const haystack = (t: Task) => {
+    const project = t.projectId ? ix.byId.get(t.projectId)?.title : "";
+    const areaId = areaOf(t, ix);
+    const area = areaId ? ix.areas.get(areaId)?.title : "";
+    const checklist = (ix.checklistByTask.get(t.id) ?? []).map((c) => c.title).join(" ");
+    const tags = t.tagIds.map((id) => tagNames.get(id) ?? "").join(" ");
+    return `${t.title} ${t.notes} ${checklist} ${project ?? ""} ${area ?? ""} ${tags}`.toLowerCase();
+  };
+  return (t) => {
+    if (f.status !== "all" && t.status !== f.status) return false;
+    if (f.kind !== "all" && t.type !== f.kind) return false;
+    if (f.container && !(t.id === f.container || t.projectId === f.container || areaOf(t, ix) === f.container)) return false;
+    if (range.from || range.to) {
+      const day = completedDay(t);
+      if (!day) return false;
+      if (range.from && day < range.from) return false;
+      if (range.to && day > range.to) return false;
+    }
+    if (words.length) {
+      const h = haystack(t);
+      if (!words.every((w) => h.includes(w))) return false;
+    }
+    return true;
+  };
+}
+
+export interface LogbookStats {
+  completed: number;
+  canceled: number;
+  projects: number;
+  /** Distinct days with something logged. */
+  days: number;
+  /** Most items logged in one day. */
+  best: { day: string; count: number } | null;
+}
+
+export function logbookStats(items: Task[]): LogbookStats {
+  const perDay = new Map<string, number>();
+  let completed = 0;
+  let canceled = 0;
+  let projects = 0;
+  for (const t of items) {
+    if (t.type === "project") projects++;
+    else if (t.status === "canceled") canceled++;
+    else completed++;
+    const d = completedDay(t);
+    if (d) perDay.set(d, (perDay.get(d) ?? 0) + 1);
+  }
+  let best: LogbookStats["best"] = null;
+  for (const [day, count] of perDay) if (!best || count > best.count) best = { day, count };
+  return { completed, canceled, projects, days: perDay.size, best };
 }

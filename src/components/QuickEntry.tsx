@@ -55,9 +55,12 @@ export function QuickEntryApp() {
   const parsed = parseQuickEntry(text, tags, today);
   const writable = !!app?.canWrite && app.account.mode !== "signedOut";
 
-  const hide = () => {
-    setText("");
-    setNotes("");
+  /** Hides the window. The draft stays (like clicking away) unless it was just saved. */
+  const hide = (clear = false) => {
+    if (clear) {
+      setText("");
+      setNotes("");
+    }
     setError(null);
     void backend.hideQuickEntry();
   };
@@ -67,7 +70,7 @@ export function QuickEntryApp() {
     setSaving(true);
     try {
       await backend.apply({ type: "createTask", title: parsed.title, notes, when: parsed.when, deadline: parsed.deadline, reminder: parsed.reminder, tagIds: parsed.tagIds });
-      hide();
+      hide(true);
     } catch (e) {
       setError(isWriteError(e) ? e.message : String(e));
     } finally {
@@ -80,7 +83,8 @@ export function QuickEntryApp() {
     <div
       className="quick-entry-card"
       onKeyDown={(e) => {
-        if (e.key === "Escape") hide();
+        // Escape hides and keeps the draft; Shift+Escape throws it away.
+        if (e.key === "Escape") hide(e.shiftKey);
         if (e.key === "Enter" && (e.ctrlKey || (e.target as HTMLElement).tagName === "INPUT")) {
           e.preventDefault();
           void save();

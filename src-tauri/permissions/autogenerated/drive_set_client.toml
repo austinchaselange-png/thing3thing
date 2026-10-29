@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-set-client"
+description = "Enables the drive_set_client command without any pre-configured scope."
+commands.allow = ["drive_set_client"]
+
+[[permission]]
+identifier = "deny-drive-set-client"
+description = "Denies the drive_set_client command without any pre-configured scope."
+commands.deny = ["drive_set_client"]

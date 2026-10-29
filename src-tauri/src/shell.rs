@@ -16,10 +16,13 @@ pub const QUICK: &str = "quick";
 
 pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::Result<WebviewWindow> {
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
-        .title("Tings 3")
+        .title("Things 3")
         .inner_size(1120.0, 740.0)
-        .min_inner_size(720.0, 480.0)
+        .min_inner_size(360.0, 420.0)
         .decorations(false) // the UI draws its own title bar and traffic lights
+        // Tauri's file-drop handler swallows HTML5 drag and drop on Windows,
+        // which the UI needs for reordering to-dos.
+        .disable_drag_drop_handler()
         .shadow(true)
         .center()
         .visible(visible);
@@ -44,6 +47,17 @@ pub fn create_main_window(app: &AppHandle, mica: bool, visible: bool) -> tauri::
             let core = handle.state::<Arc<Core>>();
             if !core.visible.swap(true, Ordering::Relaxed) {
                 core.wake(); // refresh when the user comes back
+            }
+        }
+        // Minimizing counts as hidden, so background polling slows down just as
+        // it does in the tray; restoring wakes it straight away.
+        WindowEvent::Resized(_) => {
+            let core = handle.state::<Arc<Core>>();
+            let minimized = handle.get_webview_window(MAIN).and_then(|w| w.is_minimized().ok()).unwrap_or(false);
+            if minimized {
+                core.visible.store(false, Ordering::Relaxed);
+            } else if handle.get_webview_window(MAIN).and_then(|w| w.is_visible().ok()).unwrap_or(false) && !core.visible.swap(true, Ordering::Relaxed) {
+                core.wake();
             }
         }
         _ => {}
@@ -71,6 +85,44 @@ pub fn create_quick_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         }
     });
     Ok(window)
+}
+
+/// Opens a project in a window of its own (or focuses it if it's already open).
+/// It runs the same UI, locked to that project; changes reach every window
+/// through the broadcast "state" event.
+pub fn open_project_window(app: &AppHandle, id: &str, title: &str) -> tauri::Result<()> {
+    // Labels may only hold [a-zA-Z0-9-/:_]; Things ids are Base58, but be strict anyway.
+    let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+    if safe.is_empty() {
+        return Ok(());
+    }
+    let label = format!("project-{safe}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let title = if title.trim().is_empty() { "Things 3".to_string() } else { format!("{} – Things 3", title.trim()) };
+    // Cascade from the main window so the new one doesn't hide exactly behind it.
+    let open = app.webview_windows().keys().filter(|l| l.starts_with("project-")).count() as f64;
+    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?window=project&id={safe}").into()))
+        .title(title)
+        .inner_size(760.0, 680.0)
+        .min_inner_size(480.0, 360.0)
+        .decorations(false)
+        .disable_drag_drop_handler()
+        .shadow(true);
+    match app.get_webview_window(MAIN).and_then(|m| m.outer_position().ok().zip(m.scale_factor().ok())) {
+        Some((pos, scale)) => {
+            let step = 36.0 * (open + 1.0);
+            b = b.position(pos.x as f64 / scale + 60.0 + step, pos.y as f64 / scale + 40.0 + step);
+        }
+        None => b = b.center(),
+    }
+    let w = b.build()?;
+    let _ = w.set_focus();
+    Ok(())
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -135,17 +187,41 @@ pub fn set_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
     r.map_err(|e| format!("Could not change the startup setting: {e}"))
 }
 
+/// Quit from the tray: the UI first saves an open edit, and a change being
+/// sent to Things Cloud is allowed to finish, so nothing is cut off mid-write.
+pub fn quit_gracefully(app: &AppHandle) {
+    let core = app.state::<Arc<Core>>().inner().clone();
+    if core.quitting.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let has_ui = app.get_webview_window(MAIN).is_some();
+    let _ = app.emit_to(MAIN, "tings3:before-quit", ());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // Up to 5 s for the UI to report back (it calls `quit_ready`).
+        let start = std::time::Instant::now();
+        while has_ui && !core.quit_ready.load(Ordering::SeqCst) && start.elapsed() < std::time::Duration::from_secs(5) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        core.when_idle(std::time::Duration::from_secs(20), || {
+            app.exit(0);
+            // Keep holding the engine until the process ends.
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        });
+    });
+}
+
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Tings 3", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Things 3", true, None::<&str>)?;
     let quick = MenuItem::with_id(app, "quick", "New To-Do…", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "Sync Now", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Tings 3", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Things 3", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&show, &quick, &sep, &sync, &settings, &sep2, &quit])?;
     let mut builder = TrayIconBuilder::with_id("tings3")
-        .tooltip("Tings 3")
+        .tooltip("Things 3")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -156,7 +232,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 show_main(app);
                 let _ = app.emit_to(MAIN, "tings3:settings", ());
             }
-            "quit" => app.exit(0),
+            "quit" => quit_gracefully(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

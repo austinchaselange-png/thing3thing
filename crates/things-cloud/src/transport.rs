@@ -34,7 +34,7 @@ impl ItemsPage {
     }
 }
 
-/// The four Things Cloud operations Tings 3 uses. Implemented by
+/// The four Things Cloud operations Things 3 uses. Implemented by
 /// [`crate::http::HttpTransport`] (real service) and [`crate::fake::FakeCloud`].
 pub trait Transport: Send + Sync {
     fn verify(&self, email: &str, password: &Secret) -> Result<Account, CloudError>;
@@ -45,12 +45,13 @@ pub trait Transport: Send + Sync {
     fn commit(&self, history_key: &Secret, ancestor_index: u64, items: &[Item]) -> Result<u64, CommitError>;
 }
 
-/// Validates a page exactly like the reference SDK so a misbehaving server
+/// Validates a page's cursor like the reference SDK so a misbehaving server
 /// can never make the cursor skip or regress.
+///
+/// A newer schema number is *not* an error here: items are checked one by
+/// one when applied, so reading keeps working. Writers must refuse to write
+/// while the server reports a newer schema (see `things_sync::Engine`).
 pub fn validate_page(page: &ItemsPage) -> Result<(), CloudError> {
-    if page.schema > crate::SUPPORTED_SCHEMA {
-        return Err(CloudError::UnsupportedSchema { found: page.schema, supported: crate::SUPPORTED_SCHEMA });
-    }
     if page.current_item_index < page.start_index {
         return Err(CloudError::Protocol(format!("server cursor regressed from {} to {}", page.start_index, page.current_item_index)));
     }
