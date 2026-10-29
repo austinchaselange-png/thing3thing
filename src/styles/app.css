@@ -455,7 +455,8 @@ html.mica .sidebar {
   width: 100%;
   height: 30px;
   border-radius: 4px;
-  background: var(--fill);
+  /* Just a baseline, so a day with nothing done doesn't look like a full bar. */
+  background: linear-gradient(var(--fill), var(--fill)) bottom / 100% 2px no-repeat;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
@@ -2603,6 +2604,18 @@ html.quick-entry #root {
   animation: raIn 0.14s var(--ease);
 }
 
+/* Too little room left of the list (narrow window, or the calendar is open):
+   the quick actions sit inside the row, on the right, instead of being cut off. */
+@media (max-width: 860px) {
+  .row-actions {
+    right: 6px;
+  }
+}
+
+.app.with-cal .row-actions {
+  right: 6px;
+}
+
 @keyframes raIn {
   from {
     opacity: 0;
@@ -3720,22 +3733,31 @@ html.quick-entry #root {
   gap: 6px;
 }
 
-.lf-select {
-  height: 24px;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 0;
-  background: var(--ctl);
-  box-shadow: var(--shadow-ctl);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  outline: none;
-  max-width: 200px;
+.lf-controls .chip {
+  /* Same pill as the tag filter row above lists. */
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
 }
 
-.lf-select:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+.lf-chip {
+  max-width: 220px;
+}
+
+.lf-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lf-chip-chev {
+  flex: none;
+  transform: rotate(90deg);
+  opacity: 0.7;
+}
+
+.lf-status {
+  display: inline-flex;
+  gap: 4px;
 }
 
 .lf-range {
@@ -3756,28 +3778,6 @@ html.quick-entry #root {
   font-size: 12px;
   padding: 0 4px;
   color-scheme: inherit;
-}
-
-.lf-seg {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--fill);
-}
-
-.lf-seg button {
-  height: 20px;
-  padding: 0 9px;
-  border-radius: 5px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.lf-seg button.on {
-  background: var(--seg-sel);
-  color: var(--text);
-  box-shadow: var(--shadow-ctl);
-  font-weight: 500;
 }
 
 .lf-summary {

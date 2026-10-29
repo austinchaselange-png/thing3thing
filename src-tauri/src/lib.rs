@@ -102,6 +102,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::sync_now,
+            commands::quit_ready,
             commands::apply_mutation,
             commands::connect_account,
             commands::disconnect_account,

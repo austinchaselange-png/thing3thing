@@ -139,9 +139,9 @@ export function taskMenu(t: Task): MenuItem[] {
       ? w({ label: isProject ? "Complete Project" : "Complete", icon: <CheckIcon />, shortcut: "Ctrl+K", onSelect: () => void setStatus(t, "completed") })
       : w({ label: "Mark as Open", icon: <UndoIcon />, shortcut: "Ctrl+K", onSelect: () => void setStatus(t, "open") }),
   );
-  if (open) items.push(w({ label: isProject ? "Cancel Project" : "Cancel", icon: <CancelIcon />, onSelect: () => void setStatus(t, "canceled") }));
+  if (open) items.push(w({ label: isProject ? "Cancel Project" : "Cancel", icon: <CancelIcon />, shortcut: "Ctrl+Alt+K", onSelect: () => void setStatus(t, "canceled") }));
   items.push(SEP as W);
-  if (open) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems([t])) }));
+  if (open) items.push(w({ label: "When", icon: <CalendarIcon />, shortcut: "Ctrl+S", submenu: guard(whenItems([t])) }));
   if (open && t.reminder) {
     items.push(w({ label: "Snooze Reminder", icon: <BellIcon />, submenu: guard(SNOOZE_OPTIONS.map(([label, by]) => w({ label, onSelect: () => void snooze(t, by) }))) }));
   }
@@ -391,9 +391,9 @@ export function bulkMenu(tasks: Task[], anchor?: HTMLElement | null): MenuItem[]
       ? w({ label: "Mark as Completed", icon: <CheckIcon />, shortcut: "Ctrl+K", onSelect: () => void bulkSetStatus(tasks, "completed") })
       : w({ label: "Mark as Open", icon: <UndoIcon />, shortcut: "Ctrl+K", onSelect: () => void bulkSetStatus(tasks, "open") }),
   );
-  if (anyOpen) items.push(w({ label: "Cancel", icon: <CancelIcon />, onSelect: () => void bulkSetStatus(tasks, "canceled") }));
+  if (anyOpen) items.push(w({ label: "Cancel", icon: <CancelIcon />, shortcut: "Ctrl+Alt+K", onSelect: () => void bulkSetStatus(tasks, "canceled") }));
   items.push(SEP as W);
-  if (anyOpen) items.push(w({ label: "When", icon: <CalendarIcon />, submenu: guard(whenItems(tasks, anchor)) }));
+  if (anyOpen) items.push(w({ label: "When", icon: <CalendarIcon />, shortcut: "Ctrl+S", submenu: guard(whenItems(tasks, anchor)) }));
   items.push(...bulkEditItems(tasks, anchor));
   items.push(w({ label: "Move…", icon: <ArrowRightIcon />, shortcut: "Ctrl+Shift+M", onSelect: () => pick("move", tasks, anchor) }));
   items.push(SEP as W, w({ label: "Duplicate", icon: <CopyIcon />, shortcut: "Ctrl+D", onSelect: () => void bulkDuplicate(tasks) }));

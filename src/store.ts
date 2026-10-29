@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { getBackend } from "./backend";
 import { applyMutation } from "./lib/applyMutation";
-import { inverseOf, type UndoStep } from "./lib/undo";
+import { inverseOf, pinned, type UndoStep } from "./lib/undo";
 import { projectWindowId } from "./windowMode";
 import type { AppState, DriveStatus, Issue, Mutation, Selection, Snapshot, Task, WriteError, WriteReport } from "./types";
 
@@ -134,6 +134,19 @@ function computeView(app: AppState | null, pending: Pending[]): Snapshot | null 
   return snap;
 }
 
+/** Open editors register a save here, so quitting can save them first. */
+const flushers = new Set<() => Promise<unknown> | void>();
+
+export function registerFlush(f: () => Promise<unknown> | void): () => void {
+  flushers.add(f);
+  return () => void flushers.delete(f);
+}
+
+/** Saves every open editor; resolves once those writes have finished. */
+export async function flushEdits(): Promise<void> {
+  await Promise.allSettled([...flushers].map((f) => f()));
+}
+
 export function isWriteError(e: unknown): e is WriteError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
@@ -169,18 +182,30 @@ export const useStore = create<Store>((set, get) => ({
 
   async undo() {
     const step = get().undoStack.at(-1);
-    if (!step) return;
-    set((s) => ({ undoStack: s.undoStack.slice(0, -1) }));
-    for (const m of step.undo) if (!(await get().apply(m, { record: false }))) return;
-    set((s) => ({ redoStack: [...s.redoStack, step] }));
+    if (!step || undoBusy) return;
+    undoBusy = true;
+    try {
+      const done = await runStep(step.undo, (rest) => set((s) => ({ undoStack: s.undoStack.map((x) => (x === step ? { ...step, undo: rest } : x)) })));
+      if (!done) return;
+      const redo = step.redo.map((m) => pinned(m, done.get(idOf(m)) ?? done.get("") ?? 0));
+      set((s) => ({ undoStack: s.undoStack.filter((x) => x !== step), redoStack: [...s.redoStack, { ...step, redo }] }));
+    } finally {
+      undoBusy = false;
+    }
   },
 
   async redo() {
     const step = get().redoStack.at(-1);
-    if (!step) return;
-    set((s) => ({ redoStack: s.redoStack.slice(0, -1) }));
-    for (const m of step.redo) if (!(await get().apply(m, { record: false }))) return;
-    set((s) => ({ undoStack: [...s.undoStack, { ...step, at: -1 }] }));
+    if (!step || undoBusy) return;
+    undoBusy = true;
+    try {
+      const done = await runStep(step.redo, (rest) => set((s) => ({ redoStack: s.redoStack.map((x) => (x === step ? { ...step, redo: rest } : x)) })));
+      if (!done) return;
+      const undo = step.undo.map((m) => pinned(m, done.get(idOf(m)) ?? done.get("") ?? 0));
+      set((s) => ({ redoStack: s.redoStack.filter((x) => x !== step), undoStack: [...s.undoStack, { ...step, undo, at: -1 }] }));
+    } finally {
+      undoBusy = false;
+    }
   },
 
   openMenu(at, items) {
@@ -221,7 +246,14 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setApp(app) {
-    set((s) => ({ app, view: computeView(app, s.pending), loadError: null }));
+    set((s) => {
+      // A status-only update (same data revision): keep the current snapshot
+      // and view objects so lists don't rebuild every poll.
+      if (s.app && s.view && app.dataRev !== undefined && app.dataRev === s.app.dataRev) {
+        return { app: { ...app, snapshot: s.app.snapshot }, loadError: null };
+      }
+      return { app, view: computeView(app, s.pending), loadError: null };
+    });
   },
 
   select(selection) {
@@ -263,7 +295,8 @@ export const useStore = create<Store>((set, get) => ({
   toast(text, tone = "info", action) {
     const id = ++seq;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, tone, action }] }));
-    setTimeout(() => get().dismissToast(id), tone === "error" ? 8000 : 4000);
+    // Toasts with a button stay longer so there is time to use it.
+    setTimeout(() => get().dismissToast(id), tone === "error" || action ? 8000 : 4000);
   },
 
   dismissToast(id) {
@@ -308,7 +341,7 @@ export const useStore = create<Store>((set, get) => ({
       done();
       if (record) {
         const undo = mutation.type === "createTask" && report.created[0] ? [{ type: "setTrashed", id: report.created[0], baseRev: null, trashed: true } as Mutation] : inverse;
-        if (undo) pushUndo(undo, mutation, action);
+        if (undo) pushUndo(undo.map((m) => pinned(m, report.serverIndex)), mutation, action);
       }
       if (report.reconciled) get().toast("The connection dropped, but Things 3 confirmed the change was saved.", "success");
       return report;
@@ -344,6 +377,35 @@ function writePref(key: string, value: string) {
 let actionSeq = 0;
 if (typeof window !== "undefined") {
   for (const type of ["keydown", "pointerdown", "drop"]) window.addEventListener(type, () => void actionSeq++, true);
+}
+
+let undoBusy = false;
+
+/** The entity a mutation acts on ("" when it has no single id). */
+function idOf(m: Mutation): string {
+  return "id" in m && typeof m.id === "string" ? m.id : "";
+}
+
+/**
+ * Applies a step's mutations in order. Returns, per entity id, the history
+ * head after its write ("" holds the last one), or null if one failed; then
+ * `keep` receives the mutations still to apply, so the step can be retried.
+ */
+async function runStep(ms: Mutation[], keep: (rest: Mutation[]) => void): Promise<Map<string, number> | null> {
+  const heads = new Map<string, number>();
+  for (let i = 0; i < ms.length; i++) {
+    // Our own earlier write in this step isn't a conflict: start from it.
+    const id = idOf(ms[i]);
+    const m = id && heads.has(id) ? pinned(ms[i], heads.get(id)!) : ms[i];
+    const r = await useStore.getState().apply(m, { record: false });
+    if (!r) {
+      keep(ms.slice(i));
+      return null;
+    }
+    heads.set(idOf(ms[i]), r.serverIndex);
+    heads.set("", r.serverIndex);
+  }
+  return heads;
 }
 
 /** Records an undo step, merged with the previous one when the same user action caused both. */

@@ -155,10 +155,13 @@ const okCount = (rs: unknown[]) => rs.filter(Boolean).length;
 
 export async function bulkSetStatus(tasks: Task[], status: TaskStatus) {
   const targets = tasks.filter((t) => t.status !== status && t.type !== "heading");
+  // Undo puts each one back to the status it had (completed, canceled or open).
+  const before = new Map(targets.map((t) => [t.id, t.status]));
   const n = okCount(await bulk(targets, (t) => setStatus(t, status)));
   if (n > 1) {
     const verb = status === "open" ? "Reopened" : status === "completed" ? "Completed" : "Canceled";
-    useStore.getState().toast(`${verb} ${plural(n)}`, "success", { label: "Undo", run: () => void bulkSetStatus(targets.map(fresh), "open") });
+    const restore = () => void bulk(targets.map(fresh).filter((t) => t.status === status), (t) => setStatus(t, before.get(t.id)!));
+    useStore.getState().toast(`${verb} ${plural(n)}`, "success", { label: "Undo", run: restore });
   }
 }
 
@@ -254,17 +257,21 @@ export async function duplicateProject(p: Task) {
   // New items go to the top, so create them last-first to keep the original order.
   const children = snap.tasks.filter((t) => t.projectId === p.id && t.id !== p.id && !t.trashed && t.status === "open").sort((a, b) => b.index - a.index);
   const headingMap = new Map<string, string>();
+  let failed = 0;
   for (const h of children.filter((t) => t.type === "heading")) {
     const hr = await apply({ type: "createTask", kind: "heading", title: h.title || "Heading", projectId: copy });
     if (hr?.created[0]) headingMap.set(h.id, hr.created[0]);
+    else failed++;
   }
   for (const t of children.filter((c) => c.type === "task")) {
     const checklist = snap.checklist.filter((c) => c.taskId === t.id).sort((a, b) => a.index - b.index).map((c) => c.title);
     const headingId = t.headingId ? (headingMap.get(t.headingId) ?? null) : null;
-    await apply({ type: "createTask", title: t.title || "Untitled", notes: t.notes, when: whenOf(t), deadline: t.deadline, tagIds: t.tagIds, projectId: headingId ? null : copy, headingId, checklist });
+    const r = await apply({ type: "createTask", title: t.title || "Untitled", notes: t.notes, when: whenOf(t), deadline: t.deadline, tagIds: t.tagIds, projectId: headingId ? null : copy, headingId, checklist });
+    if (!r?.created[0]) failed++;
   }
   s.select({ kind: "project", id: copy });
-  s.toast("Project duplicated", "success");
+  if (failed) s.toast(`Project duplicated, but ${plural(failed, "item")} couldn't be copied.`, "error");
+  else s.toast("Project duplicated", "success");
 }
 
 /** Plain-text rendering of to-dos for Share and the clipboard. */
@@ -334,8 +341,8 @@ export async function pasteAsTodos(sel: Selection) {
     if (!r) break;
     if (r.created[0]) created.unshift(r.created[0]);
   }
-  if (created.length) {
-    s.setSelected(created);
-    s.toast(`Pasted ${plural(created.length)}`, "success");
-  }
+  if (created.length) s.setSelected(created);
+  const missed = titles.length - created.length;
+  if (created.length && missed) s.toast(`Pasted ${plural(created.length)}; ${missed} couldn't be added.`, "error");
+  else if (created.length) s.toast(`Pasted ${plural(created.length)}`, "success");
 }

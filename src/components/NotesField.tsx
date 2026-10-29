@@ -14,11 +14,7 @@ function autosize(el: HTMLTextAreaElement | null) {
 
 export function openNoteLink(url: string) {
   if (url.startsWith("things:")) return void handleLink(url);
-  if (url.startsWith("https://")) return void getBackend().openUrl(url).catch(() => useStore.getState().toast("Couldn't open the link.", "error"));
-  if (url.startsWith("mailto:") || url.startsWith("http://")) {
-    // The desktop shell only opens https links; copy the rest.
-    void navigator.clipboard?.writeText(url.replace(/^mailto:/, "")).then(() => useStore.getState().toast("Link copied", "success"));
-  }
+  if (/^(https?:\/\/|mailto:)/.test(url)) return void getBackend().openUrl(url).catch(() => useStore.getState().toast("Couldn't open the link.", "error"));
 }
 
 const TOOLS: { label: string; title: string; run: (v: string, s: number, e: number) => EditResult; className?: string }[] = [

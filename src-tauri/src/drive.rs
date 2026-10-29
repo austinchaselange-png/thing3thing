@@ -140,8 +140,11 @@ fn now_ms() -> i64 {
 
 /// Opens a web page in the default browser.
 pub fn open_in_browser(url: &str) -> Res<()> {
-    if !url.starts_with("https://") {
-        return Err(err("invalid", "Only https links can be opened."));
+    // Web and email links only, as one plain token (no spaces or control
+    // characters that could reach the shell as extra arguments).
+    let scheme_ok = url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:");
+    if !scheme_ok || url.len() > 4096 || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return Err(err("invalid", "Only web and email links can be opened."));
     }
     #[cfg(windows)]
     {

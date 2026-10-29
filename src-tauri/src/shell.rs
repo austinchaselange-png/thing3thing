@@ -187,6 +187,30 @@ pub fn set_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
     r.map_err(|e| format!("Could not change the startup setting: {e}"))
 }
 
+/// Quit from the tray: the UI first saves an open edit, and a change being
+/// sent to Things Cloud is allowed to finish, so nothing is cut off mid-write.
+pub fn quit_gracefully(app: &AppHandle) {
+    let core = app.state::<Arc<Core>>().inner().clone();
+    if core.quitting.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let has_ui = app.get_webview_window(MAIN).is_some();
+    let _ = app.emit_to(MAIN, "tings3:before-quit", ());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // Up to 5 s for the UI to report back (it calls `quit_ready`).
+        let start = std::time::Instant::now();
+        while has_ui && !core.quit_ready.load(Ordering::SeqCst) && start.elapsed() < std::time::Duration::from_secs(5) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        core.when_idle(std::time::Duration::from_secs(20), || {
+            app.exit(0);
+            // Keep holding the engine until the process ends.
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        });
+    });
+}
+
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Things 3", true, None::<&str>)?;
     let quick = MenuItem::with_id(app, "quick", "New To-Do…", true, None::<&str>)?;
@@ -208,7 +232,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 show_main(app);
                 let _ = app.emit_to(MAIN, "tings3:settings", ());
             }
-            "quit" => app.exit(0),
+            "quit" => quit_gracefully(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

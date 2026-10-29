@@ -23,5 +23,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["src/test-setup.ts"],
+    // The calendar panel tests type a lot through jsdom; 5 s was too tight on slower PCs.
+    testTimeout: 15000,
   },
 });

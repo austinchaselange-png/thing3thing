@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { newTaskDefaults } from "../actions";
+import { emptyTrash, newTaskDefaults } from "../actions";
 import { canDropInto, drag, dropHeadings, dropTasks, endDrag, HEADING_MIME, nudge, startDrag } from "../dnd";
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { buildIndex, groupsFor, isLogbookFiltered, logbookMatcher, projectProgress, type Group } from "../lib/lists";
 import { parseQuickEntry } from "../lib/quickParse";
-import { useStore } from "../store";
+import { useStore, type MenuItem } from "../store";
 import type { Selection, Snapshot, Task } from "../types";
 import { AreaIcon, FlagIcon, LIST_META, MoonIcon, MoreIcon, ProgressPie, TagIcon } from "./Icons";
 import { areaTitleMenu, headingMenu, listViewMenu, newItemsMenu, projectMenu, tagMenu } from "./menus";
@@ -27,12 +27,17 @@ export function NewTaskDraft({ section, onDone, place }: { section?: string; onD
   const apply = useStore((s) => s.apply);
   const [text, setText] = useState("");
   const ref = useRef<HTMLInputElement>(null);
+  /** Saves in flight; a blur during one mustn't add the same to-do twice. */
+  const saving = useRef(0);
   useEffect(() => ref.current?.focus(), []);
-  const commit = async (keepOpen: boolean) => {
+  const commit = async (keepOpen: boolean, fromBlur = false) => {
+    if (fromBlur && saving.current) return;
     const parsed = parseQuickEntry(text, tags, todayYmd());
     if (!parsed.title) return onDone();
     const defaults = newTaskDefaults(selection, section);
-    setText("");
+    saving.current++;
+    // Shift+Enter: clear right away so the next one can be typed while this saves.
+    if (keepOpen) setText("");
     const r = await apply({
       type: "createTask",
       ...defaults,
@@ -41,8 +46,14 @@ export function NewTaskDraft({ section, onDone, place }: { section?: string; onD
       deadline: parsed.deadline,
       reminder: parsed.reminder,
       tagIds: [...new Set([...(defaults.tagIds ?? []), ...parsed.tagIds])],
-    });
-    if (r?.created[0] && parsed.when && !defaults.when && selection.kind === "list") {
+    }).finally(() => saving.current--);
+    // Keep what was typed when saving failed (offline, read-only…) so it isn't lost.
+    if (!r) {
+      if (keepOpen) setText((now) => now || text);
+      return;
+    }
+    if (!keepOpen) setText((now) => (now === text ? "" : now));
+    if (r.created[0] && parsed.when && !defaults.when && selection.kind === "list") {
       const label = parsed.when.kind === "date" ? relativeLabel(parsed.when.date, todayYmd()) : { today: "Today", evening: "This Evening", someday: "Someday", anytime: "Anytime", inbox: "Inbox" }[parsed.when.kind];
       useStore.getState().toast(`Added “${parsed.title}” · ${label}`, "success");
     }
@@ -70,7 +81,7 @@ export function NewTaskDraft({ section, onDone, place }: { section?: string; onD
               onDone();
             }
           }}
-          onBlur={() => void commit(false)}
+          onBlur={() => void commit(false, true)}
         />
       </div>
       <div className="draft-hint">Enter to save · Shift+Enter to add another · try “tomorrow at 9am #Errand”</div>
@@ -78,7 +89,7 @@ export function NewTaskDraft({ section, onDone, place }: { section?: string; onD
   );
 }
 
-function ProjectHeader({ project }: { project: Task }) {
+function ProjectHeader({ project, listItems }: { project: Task; listItems: () => MenuItem[] }) {
   const view = useStore((s) => s.view)!;
   const apply = useStore((s) => s.apply);
   const writable = useStore((s) => !!s.app?.canWrite);
@@ -106,7 +117,7 @@ function ProjectHeader({ project }: { project: Task }) {
           onBlur={() => title.trim() && title !== project.title && save({ title })}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
-        <TitleMore label="Project actions" items={(el) => projectMenu(project, el)} />
+        <TitleMore label="Project actions" items={(el) => withList(projectMenu(project, el), listItems())} />
       </div>
       <div className="project-meta">
         {area && (
@@ -138,6 +149,16 @@ function ProjectHeader({ project }: { project: Task }) {
 }
 
 const writableNow = () => useStore.getState().canWrite();
+
+/** One ••• menu per page: the project/area/tag's own actions, then the list's (Filter, Select, Paste, Share). */
+function withList(own: MenuItem[], list: MenuItem[]): MenuItem[] {
+  const have = new Set(own.map((i) => ("label" in i ? i.label : "")));
+  const extra = list.filter((i) => !("label" in i) || !have.has(i.label));
+  // No separator at either end of what's added.
+  while (extra.length && !("label" in extra[0])) extra.shift();
+  while (extra.length && !("label" in extra[extra.length - 1])) extra.pop();
+  return extra.length ? [...own, { separator: true }, ...extra] : own;
+}
 
 /** The ••• pill beside a project, area or tag title. */
 function TitleMore({ label, items }: { label: string; items: (anchor: HTMLElement) => import("../store").MenuItem[] }) {
@@ -318,16 +339,21 @@ export function ListView() {
   const visibleTasks = () => filtered.flatMap((g) => g.tasks.map((t) => real.get(t.id) ?? t));
   const area = selection.kind === "area" ? view.areas.find((a) => a.id === selection.id) : undefined;
   const tag = selection.kind === "tag" ? view.tags.find((t) => t.id === selection.id) : undefined;
+  const isTrash = selection.kind === "list" && selection.id === "trash";
+  const trashCount = isTrash ? view.tasks.filter((t) => t.trashed).length : 0;
+  const listItems = () => listViewMenu(selection, title, usedTags, visibleTasks);
+  // Projects, areas and tags have a ••• next to their title that includes these list actions.
+  const titleMenu = selection.kind === "project" || selection.kind === "area" || selection.kind === "tag";
   const corner = selectMode ? (
     <button className="btn primary done-btn" onClick={() => useStore.getState().setSelectMode(false)}>
       Done
     </button>
-  ) : (
+  ) : titleMenu ? null : (
     <button
       className="list-more"
       aria-label="List actions"
       title="Filter by Tag, Select, Paste, Share"
-      onClick={(e) => useStore.getState().openMenu(e.currentTarget, listViewMenu(selection, title, usedTags, visibleTasks))}
+      onClick={(e) => useStore.getState().openMenu(e.currentTarget, listItems())}
     >
       <MoreIcon size={16} />
     </button>
@@ -350,7 +376,7 @@ export function ListView() {
     >
       <div className="list-corner">{corner}</div>
       {project ? (
-        <ProjectHeader project={project} />
+        <ProjectHeader project={project} listItems={listItems} />
       ) : (
         <header className="list-header">
           <div className="list-title-row">
@@ -362,8 +388,13 @@ export function ListView() {
               <TagIcon size={26} style={{ color: "var(--text-2)" }} />
             )}
             <h1>{title}</h1>
-            {area && <TitleMore label="Area actions" items={() => areaTitleMenu(area)} />}
-            {tag && <TitleMore label="Tag actions" items={() => tagMenu(tag)} />}
+            {area && <TitleMore label="Area actions" items={() => withList(areaTitleMenu(area), listItems())} />}
+            {tag && <TitleMore label="Tag actions" items={() => withList(tagMenu(tag), listItems())} />}
+            {isTrash && trashCount > 0 && (
+              <button className="btn small title-action" onClick={() => emptyTrash()} disabled={!writableNow()}>
+                Empty Trash
+              </button>
+            )}
           </div>
         </header>
       )}

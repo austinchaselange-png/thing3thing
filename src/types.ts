@@ -204,6 +204,8 @@ export interface AppState {
   platform: { os: string; micaAvailable: boolean; version: string };
   /** Writes allowed now: policy permits them and no unvalidated data format is present. */
   canWrite: boolean;
+  /** Same value as the last state: only the sync status changed. Absent in tests and the browser preview. */
+  dataRev?: number;
   format: {
     newerKinds: { kind: string; count: number; unfamiliarFields: string[] }[];
     /** Why writes are turned off (newer schema, unreadable items, unexpected fields). Names only. */

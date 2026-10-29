@@ -25,6 +25,12 @@ pub fn get_state(core: State<'_, Arc<Core>>) -> AppStateDto {
     core.state()
 }
 
+/// The UI saved any open edit after "tings3:before-quit"; the app may exit.
+#[tauri::command]
+pub fn quit_ready(core: State<'_, Arc<Core>>) {
+    core.quit_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub fn sync_now(core: State<'_, Arc<Core>>) {
     core.sync_now();

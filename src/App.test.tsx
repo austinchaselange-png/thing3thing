@@ -505,7 +505,12 @@ describe("App", () => {
       "Rename…",
       "Delete Project",
       "Share…",
+      // The list's own actions, merged in (no second ••• in the corner).
+      "Filter by Tag",
+      "SelectCtrl+A",
+      "PasteCtrl+V",
     ]);
+    expect(screen.queryByRole("button", { name: "List actions" })).toBeNull();
   });
 
   it("toggles the calendar panel with Ctrl+Alt+C and the title-bar button", async () => {
@@ -534,7 +539,8 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText("Send invoice #1042")).toBeNull());
     expect(inList("Book train to Porto")).toBeInTheDocument();
     await userEvent.clear(screen.getByRole("textbox", { name: "Search the Logbook" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "When completed" }), "today");
+    await userEvent.click(screen.getByRole("button", { name: /^When completed/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Today" }));
     await waitFor(() => expect(screen.queryByText("Book train to Porto")).toBeNull());
     await userEvent.click(screen.getByRole("radio", { name: "Canceled" }));
     expect(await screen.findByText("Nothing matches these filters.")).toBeInTheDocument();

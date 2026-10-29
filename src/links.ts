@@ -31,6 +31,17 @@ function parseWhen(v: string | null): When | undefined {
 
 const lines = (v: string | null) => (v ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
+/** Most to-dos one link may add (same as Paste). */
+export const LINK_MAX = 100;
+/** Links that add more than this many ask first: any app or web page can open one. */
+export const LINK_ASK_ABOVE = 5;
+
+/** Runs `add` right away for small links; for bigger ones, after the user agrees. */
+function confirmLarge(count: number, what: string, add: () => Promise<void>): Promise<void> | void {
+  if (count <= LINK_ASK_ABOVE) return add();
+  useStore.getState().toast(`A link wants to add ${what}.`, "info", { label: "Add them", run: () => void add() });
+}
+
 /** Resolves list=… / list-id=… to a project or area. */
 function findContainer(params: URLSearchParams): { projectId?: string; areaId?: string; headingId?: string } {
   const v = useStore.getState().view;
@@ -89,7 +100,8 @@ export async function handleLink(url: string) {
   }
 
   if (cmd === "add") {
-    const titles = p.has("titles") ? lines(p.get("titles")) : [p.get("title") ?? ""].filter((t) => t.trim());
+    const all = p.has("titles") ? lines(p.get("titles")) : [p.get("title") ?? ""].filter((t) => t.trim());
+    const titles = all.slice(0, LINK_MAX);
     if (!titles.length || p.get("show-quick-entry") === "true") {
       // No title: open a new to-do to type into, like Things' Quick Entry.
       s.select({ kind: "list", id: "inbox" });
@@ -106,31 +118,45 @@ export async function handleLink(url: string) {
       checklist: lines(p.get("checklist-items")),
       ...findContainer(p),
     };
-    let last: string | undefined;
-    for (const title of [...titles].reverse()) {
-      const r = await s.apply({ ...base, title });
-      if (!r) return;
-      last ??= r.created[0];
-    }
-    s.toast(titles.length === 1 ? `Added “${titles[0]}”` : `Added ${titles.length} to-dos`, "success");
-    if (last && p.get("reveal") === "true") {
-      const t = useStore.getState().view?.tasks.find((x) => x.id === last);
-      if (t) reveal(t);
-    }
-    return;
+    return confirmLarge(titles.length, `${titles.length} to-dos`, async () => {
+      let last: string | undefined;
+      let added = 0;
+      for (const title of [...titles].reverse()) {
+        const r = await useStore.getState().apply({ ...base, title });
+        if (!r) break;
+        added++;
+        last ??= r.created[0];
+      }
+      const st = useStore.getState();
+      const skipped = all.length - added;
+      if (!added) return;
+      if (skipped) st.toast(`Added ${added} of ${all.length} to-dos.`, "error");
+      else st.toast(titles.length === 1 ? `Added “${titles[0]}”` : `Added ${titles.length} to-dos`, "success");
+      if (last && p.get("reveal") === "true") {
+        const t = st.view?.tasks.find((x) => x.id === last);
+        if (t) reveal(t);
+      }
+    });
   }
 
   if (cmd === "add-project") {
     const title = p.get("title")?.trim();
     if (!title) return;
     const area = useStore.getState().view?.areas.find((a) => a.title.toLowerCase() === (p.get("area") ?? "").trim().toLowerCase() || a.id === p.get("area-id"));
-    const r = await s.apply({ type: "createTask", kind: "project", title, notes: p.get("notes") ?? undefined, when: parseWhen(p.get("when")) ?? { kind: "anytime" }, areaId: area?.id ?? null, deadline: p.get("deadline") });
-    const id = r?.created[0];
-    if (!id) return;
-    for (const todo of lines(p.get("to-dos")).reverse()) await s.apply({ type: "createTask", title: todo, projectId: id });
-    const sel: Selection = { kind: "project", id };
-    s.select(sel);
-    return;
+    const allTodos = lines(p.get("to-dos"));
+    const todos = allTodos.slice(0, LINK_MAX);
+    const deadline = p.get("deadline");
+    return confirmLarge(todos.length + 1, `the project “${title}” with ${todos.length} to-dos`, async () => {
+      const st = useStore.getState();
+      const r = await st.apply({ type: "createTask", kind: "project", title, notes: p.get("notes") ?? undefined, when: parseWhen(p.get("when")) ?? { kind: "anytime" }, areaId: area?.id ?? null, deadline: deadline && /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : null });
+      const id = r?.created[0];
+      if (!id) return;
+      let failed = allTodos.length - todos.length;
+      for (const todo of [...todos].reverse()) if (!(await st.apply({ type: "createTask", title: todo, projectId: id }))) failed++;
+      const sel: Selection = { kind: "project", id };
+      st.select(sel);
+      if (failed) st.toast(`Added “${title}”, but ${failed} of its to-dos weren't added.`, "error");
+    });
   }
 
   s.toast(`Things 3 doesn't understand “${cmd}” links yet.`, "info");

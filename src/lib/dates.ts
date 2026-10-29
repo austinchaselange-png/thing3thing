@@ -69,3 +69,14 @@ export function monthGrid(year: number, month: number): string[] {
   const start = new Date(year, month, 1 - offset);
   return Array.from({ length: 42 }, (_, i) => ymd(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));
 }
+
+/** A moment as people say it: "Today, 7:38 AM", "Yesterday, 9:02 PM", "Oct 20, 7:38 AM". */
+export function friendlyTime(ms: number, now: Date = new Date()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const diff = daysBetween(ymd(d), ymd(now));
+  if (diff === 0) return `Today, ${time}`;
+  if (diff === 1) return `Yesterday, ${time}`;
+  const opts: Intl.DateTimeFormatOptions = d.getFullYear() === now.getFullYear() ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" };
+  return `${d.toLocaleDateString([], opts)}, ${time}`;
+}

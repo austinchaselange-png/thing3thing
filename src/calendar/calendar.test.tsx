@@ -1,5 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEventBase from "@testing-library/user-event";
+
+// No artificial delay between keystrokes: same events, much faster.
+const userEvent = userEventBase.setup({ delay: null });
 import { beforeEach, describe, expect, it } from "vitest";
 import { MockCalendarApi, setCalendarApiForTests } from "./api";
 import CalendarPanel from "./CalendarPanel";

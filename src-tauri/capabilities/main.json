@@ -11,6 +11,7 @@
     "core:window:allow-close",
     "allow-get-state",
     "allow-sync-now",
+    "allow-quit-ready",
     "allow-apply-mutation",
     "allow-connect-account",
     "allow-disconnect-account",

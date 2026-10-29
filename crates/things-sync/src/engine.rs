@@ -119,7 +119,16 @@ pub struct Engine {
     policy: WritePolicy,
     /// Schema the server last reported (0 until the first sync).
     server_schema: u32,
+    /// Until when the local state is known to match the server: set right
+    /// after one of our commits lands exactly at `ancestor + 1`. A write in
+    /// that window skips its pre-write sync (bulk edits send one per to-do).
+    fresh_until: Option<std::time::Instant>,
 }
+
+/// How long after our own confirmed commit the next write may skip its
+/// pre-write sync. Commits are throttled to 1/s, so this is the same gap as
+/// the usual sync-then-commit sequence.
+const FRESH_AFTER_COMMIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl Engine {
     /// Opens the engine on a cache, replaying the stored event log so the
@@ -150,7 +159,7 @@ impl Engine {
                 cache.journal_set(entry.id, JournalStatus::Uncertain, Some("The app closed while this change was being sent."))?;
             }
         }
-        Ok(Engine { transport, key, cache, state, policy, server_schema: 0 })
+        Ok(Engine { transport, key, cache, state, policy, server_schema: 0, fresh_until: None })
     }
 
     pub fn state(&self) -> &State {
@@ -306,7 +315,10 @@ impl Engine {
         }
         self.check_format()?;
 
-        self.sync().map_err(|e| WriteError::Sync { message: e.to_string() })?;
+        let fresh = self.fresh_until.take().is_some_and(|t| std::time::Instant::now() < t);
+        if !fresh {
+            self.sync().map_err(|e| WriteError::Sync { message: e.to_string() })?;
+        }
         // Sync may have reconciled/missed nothing new, but re-check the gate.
         if let Some(open) = self.cache.journal_open()?.first() {
             return Err(WriteError::Blocked { journal_id: open.id });
@@ -337,11 +349,27 @@ impl Engine {
 
         match self.transport.commit(&self.key, ancestor, &plan.items) {
             Ok(head) if head == ancestor + 1 => {
-                self.cache.append_entries(ancestor, std::slice::from_ref(&plan.items))?;
-                self.state
-                    .apply_entries(ancestor, std::slice::from_ref(&plan.items))
-                    .map_err(|e| WriteError::Storage { message: e.to_string() })?;
-                self.cache.journal_set(journal_id, JournalStatus::Committed, None)?;
+                // Things Cloud has the change. If saving it here fails, mark it
+                // uncertain (not "sending"), so the next sync confirms it by
+                // reading instead of blocking writes until a restart.
+                let local = (|| -> Result<(), WriteError> {
+                    self.cache.append_entries(ancestor, std::slice::from_ref(&plan.items))?;
+                    self.state
+                        .apply_entries(ancestor, std::slice::from_ref(&plan.items))
+                        .map_err(|e| WriteError::Storage { message: e.to_string() })?;
+                    self.cache.journal_set(journal_id, JournalStatus::Committed, None)?;
+                    Ok(())
+                })();
+                if let Err(e) = local {
+                    log::error!("write {journal_id} was saved to Things Cloud but not locally: {e}");
+                    let _ = self.cache.journal_set(
+                        journal_id,
+                        JournalStatus::Uncertain,
+                        Some("Saved to Things Cloud, but this PC couldn't record it. The next sync will check."),
+                    );
+                    return Err(e);
+                }
+                self.fresh_until = Some(std::time::Instant::now() + FRESH_AFTER_COMMIT);
                 Ok(WriteReport { created: plan.created, summary: plan.summary, server_index: head, reconciled: false })
             }
             Ok(head) => self.after_uncertain(journal_id, format!("server reported index {head}, expected {}", ancestor + 1), plan),
@@ -467,6 +495,21 @@ mod tests {
         assert_eq!(s.engine.sync().unwrap().new_entries, 0);
         let created = s.engine.apply(&serde_json::from_value(json!({"type":"createTask","title":"New"})).unwrap(), false, &ctx()).unwrap();
         assert!(s.engine.state().tasks.contains_key(&created.created[0]));
+    }
+
+    #[test]
+    fn back_to_back_writes_land_in_order() {
+        // Bulk edits: the second write follows our own confirmed commit, so it
+        // may skip the pre-write sync; both must still land, in order.
+        let mut s = setup(WRITES);
+        let r1 = s.engine.apply(&rename(&s.task, 0, "One"), false, &ctx()).unwrap();
+        let r2 = s.engine.apply(&rename(&s.task, r1.server_index - 1, "Two"), false, &ctx()).unwrap();
+        assert_eq!(r2.server_index, r1.server_index + 1);
+        assert_eq!(s.engine.state().tasks[&s.task].title, "Two");
+        assert_eq!(s.fake.commits_received(), 2);
+        assert!(s.engine.issues().unwrap().is_empty());
+        // Undo pinned to our own write (server_index - 1) is not a conflict with itself.
+        assert!(s.engine.apply(&rename(&s.task, r2.server_index - 1, "One"), false, &ctx()).is_ok());
     }
 
     #[test]

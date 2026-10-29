@@ -29,6 +29,9 @@ export interface Backend {
   onLink(listener: (url: string) => void): () => void;
   /** Reminders as they go off, for Snooze. */
   onReminder(listener: (r: { taskId: string; title: string; at: string }) => void): () => void;
+  /** Quit was chosen in the tray: save open edits, then call quitReady(). */
+  onBeforeQuit(listener: () => void): () => void;
+  quitReady(): Promise<void>;
   /** Saves a JSON backup; returns where it went. */
   exportBackup(): Promise<string>;
   openUrl(url: string): Promise<void>;

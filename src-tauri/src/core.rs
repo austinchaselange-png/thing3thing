@@ -75,6 +75,9 @@ pub struct AppStateDto {
     /// no data in a newer, unvalidated format.
     pub can_write: bool,
     pub format: FormatDto,
+    /// Changes whenever the data may have changed; equal values mean the UI
+    /// can keep what it already shows (status-only updates).
+    pub data_rev: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -124,6 +127,10 @@ pub struct Core {
     /// Bumped whenever data (not just sync status) is published, so the
     /// backup loop can skip building a payload when nothing changed.
     data_rev: AtomicU64,
+    /// Quit was chosen; set once.
+    pub quitting: AtomicBool,
+    /// The UI has saved any open edit and is ready for the app to exit.
+    pub quit_ready: AtomicBool,
 }
 
 pub fn mica_available() -> bool {
@@ -184,6 +191,8 @@ impl Core {
             wake: (Mutex::new(false), Condvar::new()),
             visible: AtomicBool::new(true),
             data_rev: AtomicU64::new(0),
+            quitting: AtomicBool::new(false),
+            quit_ready: AtomicBool::new(false),
         });
         core.open_from_settings();
         core
@@ -191,12 +200,6 @@ impl Core {
 
     pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
-    }
-
-    fn save_settings(&self, s: &Settings) {
-        if let Err(e) = s.save(&self.settings_path) {
-            log::error!("could not save settings: {e}");
-        }
     }
 
     fn write_settings(&self, s: &Settings) -> Result<(), Value> {
@@ -312,6 +315,7 @@ impl Core {
             platform: PlatformDto { os: std::env::consts::OS, mica_available: mica_available(), version: env!("CARGO_PKG_VERSION") },
             can_write: policy.writes && format.writes_supported,
             format,
+            data_rev: self.data_rev.load(Ordering::Acquire),
         }
     }
 
@@ -398,8 +402,11 @@ impl Core {
                 }
             }
             let now = Local::now().naive_local();
-            self.check_reminders(last_reminder, now);
-            last_reminder = now;
+            // Only move on once the window was actually checked; if the engine
+            // was busy, the next pass covers these minutes too.
+            if self.check_reminders(last_reminder, now) {
+                last_reminder = now;
+            }
         }
     }
 
@@ -414,6 +421,7 @@ impl Core {
         // A bug while reading must not kill the worker (and with it all
         // future syncs); report it instead.
         let engine = inner.engine.as_mut().unwrap();
+        let schema_before = engine.server_schema();
         let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| engine.sync())) {
             Ok(r) => r,
             Err(panic) => {
@@ -436,8 +444,18 @@ impl Core {
                 return failures;
             }
         };
+        // A poll that brought nothing new only refreshes the status line; the
+        // full state (and the backup's change counter) stays as it was.
+        let mut nothing_new = false;
         match result {
             Ok(report) => {
+                let was_ok = inner.failures == 0 && !inner.halted;
+                let schema_after = inner.engine.as_ref().and_then(|e| e.server_schema());
+                nothing_new = was_ok
+                    && report.new_entries == 0
+                    && report.reconciled.is_empty()
+                    && report.missing.is_empty()
+                    && schema_before == schema_after;
                 inner.failures = 0;
                 self.set_status(|s| {
                     s.phase = Phase::Idle;
@@ -485,7 +503,11 @@ impl Core {
             }
         }
         let failures = inner.failures;
-        self.publish(&inner);
+        if nothing_new && self.published.read().map(|p| p.is_some()).unwrap_or(false) {
+            self.publish_status();
+        } else {
+            self.publish(&inner);
+        }
         failures
     }
 
@@ -517,24 +539,47 @@ impl Core {
         self.publish(&inner);
     }
 
-    fn check_reminders(&self, after: chrono::NaiveDateTime, until: chrono::NaiveDateTime) {
+    /// Shows reminders due in `(after, until]`. False when the engine was busy
+    /// and nothing could be checked.
+    fn check_reminders(&self, after: chrono::NaiveDateTime, until: chrono::NaiveDateTime) -> bool {
         if !self.settings().notifications {
-            return;
+            return true;
         }
         let due = match self.inner.try_lock() {
             Ok(inner) => inner.engine.as_ref().map(|e| e.due_reminders(after, until)).unwrap_or_default(),
-            Err(_) => return,
+            Err(_) => return false,
         };
         for r in due {
             self.notify(&r.title, &format!("Reminder · {}", r.at.format("%H:%M")));
             // The window shows it with Snooze buttons.
             let _ = self.app.emit_to("main", "reminder", json!({ "taskId": r.task_id, "title": r.title, "at": r.at.format("%H:%M").to_string() }));
         }
+        true
     }
 
     fn notify(&self, title: &str, body: &str) {
         if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
             log::warn!("notification failed: {e}");
+        }
+    }
+
+    /// Waits (at most `max`) until no write is in flight, then runs `f` while
+    /// holding the engine, so no new write can start before the app exits.
+    pub fn when_idle(&self, max: Duration, f: impl FnOnce()) {
+        let start = Instant::now();
+        loop {
+            match self.inner.try_lock() {
+                Ok(_guard) => return f(),
+                Err(std::sync::TryLockError::Poisoned(p)) => {
+                    let _guard = p.into_inner();
+                    return f();
+                }
+                Err(std::sync::TryLockError::WouldBlock) if start.elapsed() < max => std::thread::sleep(Duration::from_millis(100)),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    log::warn!("quitting while a change is still being sent");
+                    return f();
+                }
+            }
         }
     }
 
@@ -611,12 +656,23 @@ impl Core {
             .save(&email, &StoredCredentials { password, history_key: account.history_key })
             .map_err(|e| plain_error("storage", e.to_string()))?;
         let mut inner = self.lock_inner();
-        self.open_cloud(&mut inner, &email).map_err(|m| plain_error("storage", m))?;
+        // Saved first: if settings can't be written, the next launch would
+        // quietly open signed out, so report it instead of claiming success.
+        {
+            let mut next = self.settings();
+            next.mode = AccountMode::Cloud;
+            next.email = Some(email.clone());
+            self.write_settings(&next)?;
+        }
+        if let Err(m) = self.open_cloud(&mut inner, &email) {
+            let previous = self.settings.lock().unwrap().clone();
+            let _ = self.write_settings(&previous);
+            return Err(plain_error("storage", m));
+        }
         {
             let mut s = self.settings.lock().unwrap();
             s.mode = AccountMode::Cloud;
             s.email = Some(email);
-            self.save_settings(&s);
         }
         self.set_status(|s| {
             s.phase = Phase::Syncing;
@@ -632,28 +688,46 @@ impl Core {
     pub fn disconnect(&self, forget_cache: bool) -> Result<(), Value> {
         let mut inner = self.lock_inner();
         let email = self.settings().email;
+        // Credentials go first: if Windows can't delete them, nothing else
+        // changes and the account stays connected and working.
+        if let Some(email) = &email {
+            self.creds.delete(email).map_err(|e| plain_error("storage", format!("Couldn't remove the saved password: {e}")))?;
+        }
         inner.engine = None;
         inner.fake = None;
-        if let Some(email) = &email {
-            self.creds.delete(email).map_err(|e| plain_error("storage", e.to_string()))?;
-            if forget_cache {
-                let path = self.cache_path(email);
-                for suffix in ["", "-wal", "-shm"] {
-                    let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        let mut leftovers = Vec::new();
+        if let (Some(email), true) = (&email, forget_cache) {
+            let path = self.cache_path(email);
+            for suffix in ["", "-wal", "-shm"] {
+                let file = PathBuf::from(format!("{}{suffix}", path.display()));
+                match std::fs::remove_file(&file) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        log::warn!("could not delete {}: {e}", file.display());
+                        leftovers.push(file.display().to_string());
+                    }
                 }
             }
         }
-        {
+        let saved = {
             let mut s = self.settings.lock().unwrap();
             s.mode = AccountMode::SignedOut;
             s.email = None;
-            self.save_settings(&s);
-        }
+            self.write_settings(&s)
+        };
         self.set_status(|s| {
             s.phase = Phase::SignedOut;
             s.last_error = None;
         });
         self.publish(&inner);
+        saved?;
+        if !leftovers.is_empty() {
+            return Err(plain_error(
+                "storage",
+                format!("Signed out, but the local copy couldn't be deleted. You can remove it by hand: {}", leftovers.join(", ")),
+            ));
+        }
         Ok(())
     }
 
@@ -746,12 +820,17 @@ impl Core {
 
     pub fn use_demo(&self) -> Result<(), Value> {
         let mut inner = self.lock_inner();
-        self.open_demo(&mut inner).map_err(|e| plain_error("storage", e.to_string()))?;
         {
-            let mut s = self.settings.lock().unwrap();
-            s.mode = AccountMode::Demo;
-            self.save_settings(&s);
+            let mut next = self.settings();
+            next.mode = AccountMode::Demo;
+            self.write_settings(&next)?;
         }
+        if let Err(e) = self.open_demo(&mut inner) {
+            let previous = self.settings.lock().unwrap().clone();
+            let _ = self.write_settings(&previous);
+            return Err(plain_error("storage", e.to_string()));
+        }
+        self.settings.lock().unwrap().mode = AccountMode::Demo;
         self.set_status(|s| {
             s.phase = Phase::Idle;
             s.last_error = None;

@@ -5,7 +5,8 @@ import { getThemePref, setThemePref, type ThemePref } from "../lib/theme";
 import { buildIndex, search } from "../lib/lists";
 import { isWriteError, useStore, type SettingsTab } from "../store";
 import { DriveSettings } from "./DriveSettings";
-import type { Issue, ListId, Settings } from "../types";
+import type { Issue, ListId, Settings, SyncPhase } from "../types";
+import { friendlyTime } from "../lib/dates";
 import { AreaIcon, CloseIcon, LIST_META, LockIcon, ProgressPie, SearchIcon, TagIcon, WarningIcon } from "./Icons";
 
 export function Modal({ title, onClose, children, width = 480, footer }: { title: string; onClose: () => void; children: ReactNode; width?: number; footer?: ReactNode }) {
@@ -120,6 +121,24 @@ function AccountTab() {
   );
 }
 
+const PHASE_TEXT: Record<SyncPhase, string> = {
+  idle: "Up to date",
+  syncing: "Syncing…",
+  error: "Sync error",
+  offline: "Offline",
+  rateLimited: "Paused (Things Cloud asked to slow down)",
+  signedOut: "Not connected",
+};
+
+const JOURNAL_TEXT: Record<Issue["status"], string> = {
+  sending: "Sending",
+  uncertain: "Unconfirmed",
+  missing: "Not saved",
+  committed: "Saved",
+  rejected: "Refused",
+  dismissed: "Dismissed",
+};
+
 function SyncTab() {
   const app = useStore((s) => s.app)!;
   const openDialog = useStore((s) => s.openDialog);
@@ -130,11 +149,9 @@ function SyncTab() {
     <div className="settings-section">
       <div className="status-grid">
         <span>Status</span>
-        <span>{sync.phase}</span>
-        <span>Last sync</span>
-        <span>{sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString() : "never"}</span>
-        <span>History index</span>
-        <span>{app.snapshot.serverIndex}</span>
+        <span>{cloud ? PHASE_TEXT[sync.phase] : "Stored on this PC"}</span>
+        <span>{cloud ? "Last sync" : "Last saved"}</span>
+        <span>{sync.lastSyncedAt ? friendlyTime(sync.lastSyncedAt) : "Never"}</span>
         {sync.lastError && (
           <>
             <span>Last error</span>
@@ -176,22 +193,26 @@ function SyncTab() {
           </div>
         </>
       )}
-      <h3>Writing to Things Cloud</h3>
-      <Toggle
-        label="Allow changes to be saved to Things Cloud"
-        hint={cloud ? "Off by default. Edits will appear on your iPhone." : "To-dos stored on this PC are always editable."}
-        checked={policy.writes}
-        disabled={!cloud}
-        onChange={(v) => (v ? openDialog({ kind: "writeOptIn" }) : void run(() => backend.setPolicy({ writes: false, destructive: false })))}
-      />
-      <Toggle
-        label="Allow permanent deletions"
-        hint="Deleting areas, tags and checklist items, and stopping repeats. Moving to Trash is always reversible and does not need this."
-        checked={policy.destructive}
-        disabled={!cloud || !policy.writes}
-        onChange={(v) => (v ? openDialog({ kind: "destructiveOptIn" }) : void run(() => backend.setPolicy({ writes: policy.writes, destructive: false })))}
-      />
-      <PollSetting />
+      {/* Only meaningful for Things Cloud; lists on this PC are always editable. */}
+      {cloud && (
+        <>
+          <h3>Writing to Things Cloud</h3>
+          <Toggle
+            label="Allow changes to be saved to Things Cloud"
+            hint="Off by default. Edits will appear on your iPhone."
+            checked={policy.writes}
+            onChange={(v) => (v ? openDialog({ kind: "writeOptIn" }) : void run(() => backend.setPolicy({ writes: false, destructive: false })))}
+          />
+          <Toggle
+            label="Allow permanent deletions"
+            hint="Deleting areas, tags and checklist items, and stopping repeats. Moving to Trash is always reversible and does not need this."
+            checked={policy.destructive}
+            disabled={!policy.writes}
+            onChange={(v) => (v ? openDialog({ kind: "destructiveOptIn" }) : void run(() => backend.setPolicy({ writes: policy.writes, destructive: false })))}
+          />
+          <PollSetting />
+        </>
+      )}
       {account.mode === "demo" && import.meta.env.DEV && (
         <>
           <h3>Testing</h3>
@@ -207,8 +228,8 @@ function SyncTab() {
           <ul className="journal">
             {app.recentWrites.map((w) => (
               <li key={w.id} className={`journal-${w.status}`}>
-                <span className="journal-status">{w.status}</span> {w.summary}
-                <small>{new Date(w.createdAt * 1000).toLocaleString()}</small>
+                <span className="journal-status">{JOURNAL_TEXT[w.status]}</span> {w.summary}
+                <small>{friendlyTime(w.createdAt * 1000)}</small>
               </li>
             ))}
           </ul>

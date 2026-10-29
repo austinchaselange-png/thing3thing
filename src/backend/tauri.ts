@@ -80,6 +80,15 @@ export class TauriBackend implements Backend {
     return () => void un.then((f) => f());
   }
 
+  onBeforeQuit(listener: () => void) {
+    const un = listen("tings3:before-quit", () => listener());
+    return () => void un.then((f) => f());
+  }
+
+  quitReady() {
+    return invoke<void>("quit_ready");
+  }
+
   exportBackup() {
     return invoke<string>("export_backup");
   }

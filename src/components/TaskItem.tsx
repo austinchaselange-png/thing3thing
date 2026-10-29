@@ -4,7 +4,7 @@ import { deletePermanently, moveTo, schedule, toggleComplete, trash } from "../a
 import { deadlineLabel, relativeLabel, todayYmd } from "../lib/dates";
 import { projectProgress } from "../lib/lists";
 import { endDrag, startDrag } from "../dnd";
-import { useMulti, useStore } from "../store";
+import { registerFlush, useMulti, useStore } from "../store";
 import type { ChecklistItem, Tag, Task } from "../types";
 import {
   AreaIcon,
@@ -300,12 +300,28 @@ export function TaskEditor({ task }: { task: Task }) {
     titleRef.current?.focus();
   }, []);
 
+  // What was last saved from this editor (starts as the to-do's own text).
+  const savedRef = useRef({ title: task.title, notes: task.notes });
+
   const save = (nextNotes: string = notes) => {
     const patch: { title?: string; notes?: string } = {};
-    if (title.trim() && title.trim() !== task.title) patch.title = title.trim();
-    if (nextNotes !== task.notes) patch.notes = nextNotes;
-    if (Object.keys(patch).length && writable) void apply({ type: "updateTask", id: task.id, baseRev: baseRev.current, ...patch });
+    if (title.trim() && title.trim() !== savedRef.current.title) patch.title = title.trim();
+    if (nextNotes !== savedRef.current.notes) patch.notes = nextNotes;
+    if (Object.keys(patch).length && writable) {
+      const before = savedRef.current;
+      savedRef.current = { title: patch.title ?? before.title, notes: patch.notes ?? before.notes };
+      return apply({ type: "updateTask", id: task.id, baseRev: baseRev.current, ...patch }).then((r) => {
+        // Our own save is the new base, so saving again (notes, then title) isn't a conflict.
+        if (r) baseRev.current = Math.max(baseRev.current, r.serverIndex - 1);
+        else savedRef.current = before; // not saved: a later close tries again
+        return r;
+      });
+    }
   };
+  // Quitting from the tray saves this editor first.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => registerFlush(() => saveRef.current()), []);
   const close = () => {
     save();
     useStore.getState().edit(null);

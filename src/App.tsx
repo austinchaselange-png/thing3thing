@@ -14,7 +14,7 @@ import { ListView, selectionTitle } from "./components/ListView";
 import { DeadlinePicker, MovePicker, Popover, TagPicker, WhenPicker } from "./components/Pickers";
 import { Sidebar } from "./components/Sidebar";
 import { TrafficLights } from "./components/WindowControls";
-import { selectedTasks, useMulti, useStore, type PickerState } from "./store";
+import { flushEdits, selectedTasks, useMulti, useStore, type PickerState } from "./store";
 import type { ListId, Task } from "./types";
 import { isProjectWindow, showMainWindow } from "./windowMode";
 
@@ -68,9 +68,12 @@ export function App() {
     void backend.takeLinks().then((links) => links.forEach((l) => void handleLink(l)));
     const offLink = backend.onLink((l) => void handleLink(l));
     const offReminder = backend.onReminder((r) => setReminders((list) => [...list.filter((x) => x.taskId !== r.taskId), r]));
+    // Tray → Quit: save an open edit first, then let the app exit.
+    const offQuit = backend.onBeforeQuit(() => void flushEdits().finally(() => void backend.quitReady()));
     return () => {
       offLink();
       offReminder();
+      offQuit();
     };
     // Once the first state has loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -400,13 +403,14 @@ function AddBubble({ disabled }: { disabled: boolean }) {
   const selection = useStore((s) => s.selection);
   const multi = useMulti();
   const blocked = selection.kind === "list" && (selection.id === "logbook" || selection.id === "trash");
-  if (multi) return null;
+  // Nothing can be added to the Logbook or Trash: no button there at all.
+  if (multi || blocked) return null;
   return (
     <button
       className="add-bubble"
       aria-label="New To-Do"
-      title={disabled ? "Read-only" : blocked ? "Pick a list to add to-dos" : "New To-Do (Ctrl+N). Drag it to where the to-do should go; right-click for more"}
-      disabled={disabled || blocked}
+      title={disabled ? "Read-only" : "New To-Do (Ctrl+N). Drag it to where the to-do should go; right-click for more"}
+      disabled={disabled}
       draggable={!disabled}
       onDragStart={(e) => startDrag("plus", [], e, PLUS_MIME)}
       onDragEnd={() => drag.kind === "plus" && endDrag()}
@@ -424,7 +428,7 @@ function AddBubble({ disabled }: { disabled: boolean }) {
 function NewHeading({ anchor, projectId, onClose }: { anchor: HTMLElement | null; projectId: string; onClose: () => void }) {
   const [title, setTitle] = useState("");
   const create = () => {
-    if (title.trim()) void useStore.getState().apply({ type: "createTask", kind: "heading", projectId, title });
+    if (title.trim()) void useStore.getState().apply({ type: "createTask", kind: "heading", projectId, title: title.trim() });
     onClose();
   };
   return (

@@ -7,7 +7,22 @@ import { relativeLabel, todayYmd } from "../lib/dates";
 import { EMPTY_LOGBOOK_FILTER, isLogbookFiltered, logbookStats, periodRange, type LogbookFilter, type LogPeriod } from "../lib/lists";
 import type { Group } from "../lib/lists";
 import type { Snapshot } from "../types";
-import { ClipboardIcon, CloseIcon, SearchIcon } from "./Icons";
+import { ChevronIcon, ClipboardIcon, CloseIcon, SearchIcon } from "./Icons";
+import { useStore, type MenuItem } from "../store";
+
+/** A filter chip that opens the app's own menu (instead of a native dropdown). */
+function MenuChip<T extends string>({ label, value, options, onPick }: { label: string; value: T; options: (T | null | [T, string])[]; onPick: (v: T) => void }) {
+  const entries = options.filter((o): o is [T, string] => Array.isArray(o));
+  const current = entries.find(([v]) => v === value)?.[1] ?? label;
+  const items = (): MenuItem[] =>
+    options.map((o): MenuItem => (o === null ? { separator: true } : Array.isArray(o) ? { label: o[1], checked: o[0] === value || undefined, onSelect: () => onPick(o[0]) } : { separator: true }));
+  return (
+    <button className={`chip lf-chip${entries[0]?.[0] !== value ? " active" : ""}`} aria-label={`${label}: ${current}`} aria-haspopup="menu" onClick={(e) => useStore.getState().openMenu(e.currentTarget, items())}>
+      <span className="lf-chip-text">{current}</span>
+      <ChevronIcon size={9} className="lf-chip-chev" />
+    </button>
+  );
+}
 
 /** Kept for the session, so the Logbook comes back the way you left it. */
 export const useLogbookFilter = create<{ filter: LogbookFilter; set(patch: Partial<LogbookFilter>): void; reset(): void }>((set) => ({
@@ -118,13 +133,7 @@ export function LogbookFilters({ view, shown, total }: { view: Snapshot; shown: 
         </label>
       </div>
       <div className="lf-row lf-controls">
-        <select className="lf-select" value={filter.period} aria-label="When completed" onChange={(e) => set({ period: e.target.value as LogPeriod })}>
-          {PERIODS.map(([v, l]) => (
-            <option key={v} value={v}>
-              {l}
-            </option>
-          ))}
-        </select>
+        <MenuChip label="When completed" value={filter.period} options={PERIODS} onPick={(period) => set({ period })} />
         {filter.period === "custom" && (
           <span className="lf-range">
             <input type="date" aria-label="From" value={filter.from ?? ""} max={today} onChange={(e) => set({ from: e.target.value || null })} />
@@ -132,7 +141,7 @@ export function LogbookFilters({ view, shown, total }: { view: Snapshot; shown: 
             <input type="date" aria-label="To" value={filter.to ?? ""} max={today} onChange={(e) => set({ to: e.target.value || null })} />
           </span>
         )}
-        <div className="lf-seg" role="radiogroup" aria-label="Status">
+        <div className="lf-status" role="radiogroup" aria-label="Status">
           {(
             [
               ["all", "All"],
@@ -140,38 +149,32 @@ export function LogbookFilters({ view, shown, total }: { view: Snapshot; shown: 
               ["canceled", "Canceled"],
             ] as const
           ).map(([v, l]) => (
-            <button key={v} role="radio" aria-checked={filter.status === v} className={filter.status === v ? "on" : ""} onClick={() => set({ status: v })}>
+            <button key={v} role="radio" aria-checked={filter.status === v} className={`chip${filter.status === v ? " active" : ""}`} onClick={() => set({ status: v })}>
               {l}
             </button>
           ))}
         </div>
-        <select className="lf-select" value={filter.kind} aria-label="Type" onChange={(e) => set({ kind: e.target.value as LogbookFilter["kind"] })}>
-          <option value="all">To-Dos & Projects</option>
-          <option value="task">To-Dos</option>
-          <option value="project">Projects</option>
-        </select>
+        <MenuChip
+          label="Type"
+          value={filter.kind}
+          options={[
+            ["all", "To-Dos & Projects"],
+            ["task", "To-Dos"],
+            ["project", "Projects"],
+          ]}
+          onPick={(kind) => set({ kind })}
+        />
         {(containers.areas.length > 0 || containers.projects.length > 0) && (
-          <select className="lf-select lf-container" value={filter.container ?? ""} aria-label="Project or area" onChange={(e) => set({ container: e.target.value || null })}>
-            <option value="">All Projects & Areas</option>
-            {containers.areas.length > 0 && (
-              <optgroup label="Areas">
-                {containers.areas.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title || "Untitled Area"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {containers.projects.length > 0 && (
-              <optgroup label="Projects">
-                {containers.projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.title || "Untitled Project"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+          <MenuChip
+            label="Project or area"
+            value={filter.container ?? ""}
+            options={[
+              ["", "All Projects & Areas"],
+              ...(containers.areas.length ? [null, ...containers.areas.map((a): [string, string] => [a.id, a.title || "Untitled Area"])] : []),
+              ...(containers.projects.length ? [null, ...containers.projects.map((p): [string, string] => [p.id, p.title || "Untitled Project"])] : []),
+            ]}
+            onPick={(v) => set({ container: v || null })}
+          />
         )}
       </div>
       <div className="lf-summary" aria-live="polite">

@@ -140,6 +140,12 @@ export class MockBackend implements Backend {
     return () => {};
   }
 
+  onBeforeQuit() {
+    return () => {};
+  }
+
+  async quitReady() {}
+
   /** Browser preview: downloads the JSON instead. */
   async exportBackup() {
     const body = JSON.stringify({ app: "Things 3 for Windows", exportedAt: new Date().toISOString(), snapshot: this.state.snapshot }, null, 2);

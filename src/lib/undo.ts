@@ -20,13 +20,32 @@ function whenOf(t: Task): When {
   return t.start === "someday" ? { kind: "someday" } : { kind: "anytime" };
 }
 
+/**
+ * Pins a recorded mutation to the revision our own write produced, so the
+ * conflict check catches anything changed after it (e.g. on the iPhone).
+ * `serverIndex` is the history head after our write; our entry sits just below it.
+ */
+export function pinned(m: Mutation, serverIndex: number): Mutation {
+  return "baseRev" in m ? ({ ...m, baseRev: Math.max(0, serverIndex - 1) } as Mutation) : m;
+}
+
 /** Mutations that undo `m`, or null when it can't be undone. createTask is handled after the write. */
 export function inverseOf(m: Mutation, snap: Snapshot): Mutation[] | null {
   const task = (id: string) => snap.tasks.find((t) => t.id === id);
   switch (m.type) {
     case "setStatus": {
       const t = task(m.id);
-      return t ? [{ type: "setStatus", id: t.id, baseRev: null, status: t.status }] : null;
+      if (!t) return null;
+      const back: Mutation[] = [{ type: "setStatus", id: t.id, baseRev: null, status: t.status }];
+      // Finishing a project also finishes its open headings and to-dos; reopen those too.
+      if (t.type === "project" && t.status === "open" && m.status !== "open") {
+        const headings = new Set(snap.tasks.filter((c) => c.type === "heading" && c.projectId === t.id).map((c) => c.id));
+        for (const c of snap.tasks) {
+          const inside = c.projectId === t.id || (!!c.headingId && headings.has(c.headingId));
+          if (inside && c.id !== t.id && c.status === "open" && !c.trashed) back.push({ type: "setStatus", id: c.id, baseRev: null, status: "open" });
+        }
+      }
+      return back;
     }
     case "setTrashed": {
       const t = task(m.id);
@@ -50,11 +69,12 @@ export function inverseOf(m: Mutation, snap: Snapshot): Mutation[] | null {
       const t = task(m.id);
       if (!t) return null;
       const back: Extract<Mutation, { type: "updateTask" }> = { type: "updateTask", id: t.id, baseRev: null };
-      if (m.title !== undefined) back.title = t.title || "Untitled";
+      // Titles can't be empty, so a to-do that had none keeps its new title.
+      if (m.title !== undefined && t.title.trim()) back.title = t.title;
       if (m.notes !== undefined) back.notes = t.notes;
       if (m.deadline !== undefined) back.deadline = t.deadline;
       if (m.tagIds !== undefined) back.tagIds = t.tagIds;
-      return [back];
+      return Object.keys(back).length > 3 ? [back] : null;
     }
     case "reorder": {
       const items = m.items

@@ -4,6 +4,7 @@
 const COMMANDS: &[&str] = &[
     "get_state",
     "sync_now",
+    "quit_ready",
     "apply_mutation",
     "connect_account",
     "disconnect_account",
